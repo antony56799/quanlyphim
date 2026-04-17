@@ -18,11 +18,11 @@ const Navbar = () => {
   return (
     <nav style={navStyle}>
       <Link to="/" style={linkStyle}>
-        Trang chu
+        Trang chủ
       </Link>
       <a style={linkStyle}>Phim</a>
-      <a style={linkStyle}>Lich chieu</a>
-      <a style={linkStyle}>Rap</a>
+      <a style={linkStyle}>Lịch chiếu</a>
+      <a style={linkStyle}>Rạp</a>
       <a style={linkStyle}>Blog</a>
     </nav>
   );

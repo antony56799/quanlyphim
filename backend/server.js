@@ -192,15 +192,118 @@ app.get("/api/admin/genres", async (_req, res) => {
   console.log("GET /api/admin/genres hit");
   try {
     const result = await pool.query(`
-      SELECT ten_loai
+      SELECT id_loai, ten_loai
       FROM theloai
       ORDER BY ten_loai
     `);
     console.log("Genres found:", result.rows.length);
-    res.json(result.rows.map((row) => row.ten_loai));
+    res.json(result.rows.map((row) => ({
+      id_the_loai: row.id_loai,
+      ten_the_loai: row.ten_loai,
+    })));
   } catch (error) {
     console.error("GET /api/admin/genres error:", error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/genres", async (req, res) => {
+  const ten_the_loai = req.body.ten_the_loai?.trim();
+
+  if (!ten_the_loai) {
+    return res.status(400).json({ error: "Tên thể loại không được để trống" });
+  }
+
+  try {
+    const existingGenre = await pool.query(
+      "SELECT id_loai, ten_loai FROM theloai WHERE LOWER(ten_loai) = LOWER($1)",
+      [ten_the_loai]
+    );
+
+    if (existingGenre.rows.length > 0) {
+      return res.status(409).json({ error: "Thể loại đã tồn tại" });
+    }
+
+    const result = await pool.query(
+      "INSERT INTO theloai (ten_loai) VALUES ($1) RETURNING id_loai, ten_loai",
+      [ten_the_loai]
+    );
+
+    return res.status(201).json({
+      success: true,
+      genre: {
+        id_the_loai: result.rows[0].id_loai,
+        ten_the_loai: result.rows[0].ten_loai,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/genres/:id", async (req, res) => {
+  const { id } = req.params;
+  const ten_the_loai = req.body.ten_the_loai?.trim();
+
+  if (!ten_the_loai) {
+    return res.status(400).json({ error: "Tên thể loại không được để trống" });
+  }
+
+  try {
+    const duplicateGenre = await pool.query(
+      "SELECT id_loai FROM theloai WHERE LOWER(ten_loai) = LOWER($1) AND id_loai <> $2",
+      [ten_the_loai, id]
+    );
+
+    if (duplicateGenre.rows.length > 0) {
+      return res.status(409).json({ error: "Tên thể loại đã được sử dụng" });
+    }
+
+    const result = await pool.query(
+      "UPDATE theloai SET ten_loai = $1 WHERE id_loai = $2 RETURNING id_loai, ten_loai",
+      [ten_the_loai, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Không tìm thấy thể loại" });
+    }
+
+    return res.json({
+      success: true,
+      genre: {
+        id_the_loai: result.rows[0].id_loai,
+        ten_the_loai: result.rows[0].ten_loai,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/genres/:id", async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM phim_theloai WHERE id_loai = $1", [id]);
+    const result = await client.query(
+      "DELETE FROM theloai WHERE id_loai = $1 RETURNING id_loai",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Không tìm thấy thể loại" });
+    }
+
+    await client.query("COMMIT");
+    return res.json({ success: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

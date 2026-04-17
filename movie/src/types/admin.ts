@@ -6,6 +6,11 @@ export interface Staff {
   id_cv: number;
 }
 
+export interface Genre {
+  id_the_loai: number;
+  ten_the_loai: string;
+}
+
 export interface AdminMovie {
   id_phim: number;
   ten_phim: string;
@@ -15,7 +20,7 @@ export interface AdminMovie {
   trang_thai: string;
   poster_url: string;
   trailer_url: string;
-  genres: string[];
+  genres: (string | Genre | { name: string })[];
   directors: string[];
   actors: string[];
 }
