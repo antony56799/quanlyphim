@@ -3,18 +3,29 @@ import { FaFilm, FaSearch, FaUser, FaSignOutAlt } from "react-icons/fa";
 import { Link, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 
+type User = {
+  name: string;
+  role?: string;
+};
+
 const Header = () => {
   const navigate = useNavigate();
   const [openSearch, setOpenSearch] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const [user, setUser] = useState<any>(null);
-
-  useEffect(() => {
+  const [user, setUser] = useState<User | null>(() => {
     const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    if (!storedUser) {
+      return null;
     }
 
+    try {
+      return JSON.parse(storedUser) as User;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setOpenSearch(false);
