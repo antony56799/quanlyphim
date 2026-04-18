@@ -18,13 +18,33 @@ const normalizeGenreName = (genre: string | Genre | { name: string }) => {
   return genre.name;
 };
 
+interface Cinema {
+  id_rap: number;
+  diachi: string;
+  sdt_rap: string;
+  trang_thai: string;
+}
+
+interface Room {
+  id_pc: number;
+  id_rap: number;
+  id_loai: number;
+  ten_phong: string;
+  trang_thai: string;
+  suc_chua: number;
+}
+
 const AdminDashboard = () => {
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms">("movies");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMovie, setSelectedMovie] = useState<AdminMovie | null>(null);
   const [selectedGenre, setSelectedGenre] = useState<Genre | null>(null);
+  const [cinemas, setCinemas] = useState<Cinema[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [selectedCinema, setSelectedCinema] = useState<Cinema | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [formData, setFormData] = useState({
     ten_phim: "",
     mo_ta: "",
@@ -42,20 +62,33 @@ const AdminDashboard = () => {
     ten_the_loai: ""
   });
 
+  const [roomFormData, setRoomFormData] = useState({
+    ten_phong: "",
+    suc_chua: 100,
+    trang_thai: "Sẵn sàng"
+  });
+
+  const [cinemaFormData, setCinemaFormData] = useState({
+    diachi: "",
+    sdt_rap: "",
+    trang_thai: "Hoạt động"
+  });
+
   const loadMovies = async () => {
-    try {
-      setIsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/admin/movies`);
-      if (response.ok) {
-        const data = await response.json();
-        setMovies(data);
-      }
-    } catch (error) {
-      console.error("Error loading movies:", error);
-    } finally {
-      setIsLoading(false);
+  try {
+    setIsLoading(true);
+    const response = await fetch(`${API_BASE_URL}/api/admin/movies`);
+    if (response.ok) {
+      const data = await response.json();
+      const sortedMovies = (data as AdminMovie[]).sort((a, b) => a.id_phim - b.id_phim);
+      setMovies(sortedMovies);
     }
-  };
+  } catch (error) {
+    console.error("Error loading movies:", error);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const loadGenres = async () => {
     try {
@@ -77,7 +110,8 @@ const AdminDashboard = () => {
               ten_the_loai: name
             };
           });
-          setGenreOptions(formattedGenres);
+          const sorted = formattedGenres.sort((a,b) => a.id_the_loai - b.id_the_loai);
+          setGenreOptions(sorted);
         } else {
           setGenreOptions([]);
         }
@@ -91,9 +125,37 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadCinemas = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/rap`);
+      if (response.ok) {
+        const data = await response.json();
+        setCinemas(data);
+      }
+    } catch (error) {
+      console.error("Error loading cinemas:", error);
+    }
+  };
+
+  const loadRooms = async (cinemaId?: number) => {
+    try {
+      const url = cinemaId 
+        ? `${API_BASE_URL}/api/admin/phong-chieu?id_rap=${cinemaId}`
+        : `${API_BASE_URL}/api/admin/phong-chieu`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setRooms(data);
+      }
+    } catch (error) {
+      console.error("Error loading rooms:", error);
+    }
+  };
+
   useEffect(() => {
     loadMovies();
     loadGenres();
+    loadCinemas();
   }, []);
 
   const handleEditClick = (movie: AdminMovie) => {
@@ -140,6 +202,148 @@ const AdminDashboard = () => {
     setGenreFormData({
       ten_the_loai: ""
     });
+  };
+
+  const handleEditCinemaClick = (cinema: Cinema) => {
+    setSelectedCinema(cinema);
+    setCinemaFormData({
+      diachi: cinema.diachi,
+      sdt_rap: cinema.sdt_rap,
+      trang_thai: cinema.trang_thai
+    });
+    loadRooms(cinema.id_rap);
+  };
+
+  const handleEditRoomClick = (room: Room) => {
+    setSelectedRoom(room);
+    setRoomFormData({
+      ten_phong: room.ten_phong,
+      suc_chua: room.suc_chua,
+      trang_thai: room.trang_thai
+    });
+  };
+
+  const handleResetCinemaForm = () => {
+    setSelectedCinema(null);
+    setCinemaFormData({
+      diachi: "",
+      sdt_rap: "",
+      trang_thai: "Hoạt động"
+    });
+    setRooms([]);
+  };
+
+  const handleResetRoomForm = () => {
+    setSelectedRoom(null);
+    setRoomFormData({
+      ten_phong: "",
+      suc_chua: 100,
+      trang_thai: "Sẵn sàng"
+    });
+  };
+
+  const handleSubmitCinema = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = selectedCinema
+      ? `${API_BASE_URL}/api/admin/rap/${selectedCinema.id_rap}`
+      : `${API_BASE_URL}/api/admin/rap`;
+    const method = selectedCinema ? "PUT" : "POST";
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cinemaFormData),
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok) {
+        handleResetCinemaForm();
+        loadCinemas();
+      } else {
+        window.alert(result?.error || "Không thể lưu rạp");
+      }
+    } catch (error) {
+      console.error("Error submitting cinema:", error);
+      window.alert("Không thể kết nối đến máy chủ khi lưu rạp");
+    }
+  };
+
+  const handleSubmitRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCinema && !selectedRoom) {
+      window.alert("Vui lòng chọn một rạp");
+      return;
+    }
+
+    const cinemaId = selectedRoom?.id_rap || selectedCinema?.id_rap;
+    const url = selectedRoom
+      ? `${API_BASE_URL}/api/admin/phong-chieu/${selectedRoom.id_pc}`
+      : `${API_BASE_URL}/api/admin/phong-chieu`;
+    const method = selectedRoom ? "PUT" : "POST";
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...roomFormData,
+          id_rap: cinemaId,
+          suc_chua: parseInt(roomFormData.suc_chua.toString())
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok) {
+        handleResetRoomForm();
+        if (cinemaId) loadRooms(cinemaId);
+      } else {
+        window.alert(result?.error || "Không thể lưu phòng chiếu");
+      }
+    } catch (error) {
+      console.error("Error submitting room:", error);
+      window.alert("Không thể kết nối đến máy chủ khi lưu phòng chiếu");
+    }
+  };
+
+  const handleDeleteCinema = async (id: number) => {
+    if (!window.confirm("Bạn có chắc muốn xóa rạp này?")) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/rap/${id}`, {
+        method: "DELETE",
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok) {
+        loadCinemas();
+        if (selectedCinema && selectedCinema.id_rap === id) {
+          handleResetCinemaForm();
+        }
+      } else {
+        window.alert(result?.error || "Không thể xóa rạp");
+      }
+    } catch (error) {
+      console.error("Error deleting cinema:", error);
+      window.alert("Không thể kết nối đến máy chủ khi xóa rạp");
+    }
+  };
+
+  const handleDeleteRoom = async (id: number) => {
+    if (!window.confirm("Bạn có chắc muốn xóa phòng chiếu này?")) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/phong-chieu/${id}`, {
+        method: "DELETE",
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok) {
+        if (selectedCinema) loadRooms(selectedCinema.id_rap);
+        if (selectedRoom && selectedRoom.id_pc === id) {
+          handleResetRoomForm();
+        }
+      } else {
+        window.alert(result?.error || "Không thể xóa phòng chiếu");
+      }
+    } catch (error) {
+      console.error("Error deleting room:", error);
+      window.alert("Không thể kết nối đến máy chủ khi xóa phòng chiếu");
+    }
   };
 
   const handleUpdateStatus = async (id: number, newStatus: string) => {
@@ -228,10 +432,10 @@ const AdminDashboard = () => {
 
   const menuItems = [
     { icon: <FaChartBar />, label: "Quản lý doanh thu" },
-    { icon: <FaDoorOpen />, label: "Quản lý phòng" },
+    { icon: <FaDoorOpen />, label: "Quản lý phòng & Rạp", active: activeSubTab === "rooms" },
     { icon: <FaChair />, label: "Quản lý ghế" },
     { icon: <FaCalendarAlt />, label: "Quản lý suất chiếu" },
-    { icon: <FaFilm />, label: "Phim & Thể loại", active: true },
+    { icon: <FaFilm />, label: "Phim & Thể loại", active: activeSubTab === "movies" || activeSubTab === "genres" },
     { icon: <FaUsers />, label: "Quản lý nhân sự" },
     { icon: <FaUserCircle />, label: "Quản lý tài khoản" },
   ];
@@ -269,6 +473,7 @@ const AdminDashboard = () => {
               onClick={() => {
                 setActiveSubTab("movies");
                 handleResetGenreForm();
+                handleResetCinemaForm();
               }}
               style={{
                 padding: "0.5rem 1rem",
@@ -286,6 +491,7 @@ const AdminDashboard = () => {
               onClick={() => {
                 setActiveSubTab("genres");
                 handleResetForm();
+                handleResetCinemaForm();
               }}
               style={{
                 padding: "0.5rem 1rem",
@@ -298,6 +504,24 @@ const AdminDashboard = () => {
               }}
             >
               Quản lý thể loại
+            </button>
+            <button
+              onClick={() => {
+                setActiveSubTab("rooms");
+                handleResetForm();
+                handleResetGenreForm();
+              }}
+              style={{
+                padding: "0.5rem 1rem",
+                background: activeSubTab === "rooms" ? "#e50914" : "transparent",
+                color: "white",
+                border: activeSubTab === "rooms" ? "none" : "1px solid #444",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: activeSubTab === "rooms" ? "bold" : "normal"
+              }}
+            >
+              Quản lý phòng & Rạp
             </button>
           </div>
 
@@ -365,7 +589,7 @@ const AdminDashboard = () => {
                 </tbody>
               </table>
             </>
-          ) : (
+          ) : activeSubTab === "genres" ? (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
                 <h2 style={{ fontSize: "1.5rem" }}>Quản lý thể loại</h2>
@@ -408,6 +632,114 @@ const AdminDashboard = () => {
                   })}
                 </tbody>
               </table>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                <h2 style={{ fontSize: "1.5rem" }}>Quản lý phòng & Rạp</h2>
+                <span style={{ color: "#aaa", fontSize: "0.9rem" }}>{cinemas.length} rạp trong hệ thống</span>
+              </div>
+
+              <div style={{ marginBottom: "1.5rem" }}>
+                <h3 style={{ fontSize: "1rem", marginBottom: "0.8rem", color: "#e50914" }}>Danh sách Rạp</h3>
+                <div style={{ 
+                  maxHeight: "300px", 
+                  overflowY: "auto", 
+                  background: "#222", 
+                  border: "1px solid #444", 
+                  borderRadius: "4px"
+                }}>
+                  {cinemas.map((cinema) => (
+                    <div
+                      key={cinema.id_rap}
+                      style={{
+                        padding: "0.8rem",
+                        borderBottom: "1px solid #333",
+                        backgroundColor: selectedCinema?.id_rap === cinema.id_rap ? "rgba(229, 9, 20, 0.2)" : "transparent",
+                        transition: "0.2s",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center"
+                      }}
+                    >
+                      <div
+                        onClick={() => handleEditCinemaClick(cinema)}
+                        style={{ flex: 1, cursor: "pointer" }}
+                      >
+                        <div style={{ fontWeight: "bold", color: selectedCinema?.id_rap === cinema.id_rap ? "#e50914" : "white" }}>
+                          [{cinema.id_rap}] {cinema.diachi || "Chưa có tên"}
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
+                          ĐT: {cinema.sdt_rap} | {cinema.trang_thai}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCinema(cinema.id_rap);
+                        }}
+                        style={{
+                          padding: "0.3rem 0.6rem",
+                          background: "#333",
+                          color: "#ff4444",
+                          border: "1px solid #444",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "0.75rem",
+                          marginLeft: "0.5rem",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {selectedCinema && (
+                <div>
+                  <h3 style={{ fontSize: "1rem", marginBottom: "0.8rem", color: "#e50914" }}>
+                    Phòng chiếu - {selectedCinema.diachi}
+                  </h3>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", marginBottom: "1rem" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid #444", color: "#aaa" }}>
+                        <th style={{ padding: "0.5rem", textAlign: "left" }}>ID</th>
+                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Tên phòng</th>
+                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Sức chứa</th>
+                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Trạng thái</th>
+                        <th style={{ padding: "0.5rem", textAlign: "right" }}>Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rooms.map((room) => (
+                        <tr
+                          key={room.id_pc}
+                          style={{ borderBottom: "1px solid #333", cursor: "pointer" }}
+                          onClick={() => handleEditRoomClick(room)}
+                        >
+                          <td style={{ padding: "0.5rem" }}>{room.id_pc}</td>
+                          <td style={{ padding: "0.5rem", fontWeight: "bold" }}>{room.ten_phong}</td>
+                          <td style={{ padding: "0.5rem" }}>{room.suc_chua}</td>
+                          <td style={{ padding: "0.5rem" }}>{room.trang_thai}</td>
+                          <td style={{ padding: "0.5rem", textAlign: "right" }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteRoom(room.id_pc);
+                              }}
+                              style={{ padding: "0.2rem 0.4rem", fontSize: "0.75rem", background: "#333", color: "#ff4444", border: "1px solid #444", borderRadius: "4px", cursor: "pointer" }}
+                            >
+                              Xóa
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
           {isLoading && <p style={{ textAlign: "center", padding: "2rem" }}>Đang tải...</p>}
@@ -574,7 +906,7 @@ const AdminDashboard = () => {
                 </div>
               </form>
             </>
-          ) : (
+          ) : activeSubTab === "genres" ? (
             <>
               <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>{selectedGenre ? "Chỉnh sửa thể loại" : "Thêm thể loại mới"}</h3>
               <form onSubmit={handleGenreSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -605,6 +937,122 @@ const AdminDashboard = () => {
                   )}
                 </div>
               </form>
+            </>
+          ) : (
+            <>
+              {selectedCinema ? (
+                <>
+                  <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>
+                    {selectedRoom ? "Chỉnh sửa phòng" : "Thêm phòng mới"} - {selectedCinema.diachi}
+                  </h3>
+                  <form onSubmit={handleSubmitRoom} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Tên phòng</label>
+                      <input
+                        type="text" required
+                        value={roomFormData.ten_phong}
+                        onChange={(e) => setRoomFormData({ ...roomFormData, ten_phong: e.target.value })}
+                        style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                      />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Sức chứa</label>
+                        <input
+                          type="number" required min="1"
+                          value={roomFormData.suc_chua}
+                          onChange={(e) => setRoomFormData({ ...roomFormData, suc_chua: parseInt(e.target.value) })}
+                          style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Trạng thái</label>
+                        <select
+                          value={roomFormData.trang_thai}
+                          onChange={(e) => setRoomFormData({ ...roomFormData, trang_thai: e.target.value })}
+                          style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                        >
+                          <option value="Sẵn sàng">Sẵn sàng</option>
+                          <option value="Bảo trì">Bảo trì</option>
+                          <option value="Không sử dụng">Không sử dụng</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
+                      <button
+                        type="submit"
+                        style={{ flex: 1, padding: "0.75rem", backgroundColor: "#e50914", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
+                      >
+                        {selectedRoom ? "Cập nhật" : "Thêm mới"}
+                      </button>
+                      {selectedRoom && (
+                        <button
+                          type="button"
+                          onClick={handleResetRoomForm}
+                          style={{ flex: 1, padding: "0.75rem", backgroundColor: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                        >
+                          Hủy
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>
+                    {selectedCinema ? "Chỉnh sửa rạp" : "Thêm rạp mới"}
+                  </h3>
+                  <form onSubmit={handleSubmitCinema} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Địa chỉ rạp</label>
+                      <input
+                        type="text" required
+                        value={cinemaFormData.diachi}
+                        onChange={(e) => setCinemaFormData({ ...cinemaFormData, diachi: e.target.value })}
+                        style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Số điện thoại</label>
+                      <input
+                        type="text"
+                        value={cinemaFormData.sdt_rap}
+                        onChange={(e) => setCinemaFormData({ ...cinemaFormData, sdt_rap: e.target.value })}
+                        style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Trạng thái</label>
+                      <select
+                        value={cinemaFormData.trang_thai}
+                        onChange={(e) => setCinemaFormData({ ...cinemaFormData, trang_thai: e.target.value })}
+                        style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                      >
+                        <option value="Hoạt động">Hoạt động</option>
+                        <option value="Bảo trì">Bảo trì</option>
+                        <option value="Đóng cửa">Đóng cửa</option>
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
+                      <button
+                        type="submit"
+                        style={{ flex: 1, padding: "0.75rem", backgroundColor: "#e50914", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
+                      >
+                        {selectedCinema ? "Cập nhật" : "Thêm mới"}
+                      </button>
+                      {selectedCinema && (
+                        <button
+                          type="button"
+                          onClick={handleResetCinemaForm}
+                          style={{ flex: 1, padding: "0.75rem", backgroundColor: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                        >
+                          Hủy
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </>
+              )}
             </>
           )}
         </aside>

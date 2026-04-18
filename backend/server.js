@@ -456,6 +456,194 @@ app.put("/api/admin/movies/:id/status", async (req, res) => {
   }
 });
 
+// ===== RAP (Cinema) Management =====
+app.get("/api/admin/rap", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id_rap, diachi, sdt_rap, trang_thai
+      FROM rap
+      ORDER BY id_rap
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/rap error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/rap", async (req, res) => {
+  const { diachi, sdt_rap, trang_thai } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO rap (diachi, sdt_rap, trang_thai)
+       VALUES ($1, $2, $3)
+       RETURNING id_rap, diachi, sdt_rap, trang_thai`,
+      [diachi, sdt_rap, trang_thai || "Hoạt động"]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/rap error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/rap/:id", async (req, res) => {
+  const { id } = req.params;
+  const { diachi, sdt_rap, trang_thai } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE rap
+       SET diachi = COALESCE($1, diachi),
+           sdt_rap = COALESCE($2, sdt_rap),
+           trang_thai = COALESCE($3, trang_thai)
+       WHERE id_rap = $4
+       RETURNING id_rap, diachi, sdt_rap, trang_thai`,
+      [diachi, sdt_rap, trang_thai, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Rạp không tồn tại" });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/rap/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/rap/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Check if cinema has rooms
+    const checkResult = await pool.query(
+      `SELECT COUNT(*) as count FROM phong_chieu WHERE id_rap = $1`,
+      [id]
+    );
+    if (checkResult.rows[0].count > 0) {
+      return res.status(400).json({ 
+        error: "Không thể xóa rạp vì còn có phòng chiếu liên kết" 
+      });
+    }
+    
+    const result = await pool.query(
+      `DELETE FROM rap WHERE id_rap = $1 RETURNING id_rap`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Rạp không tồn tại" });
+    }
+    res.json({ message: "Xóa rạp thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/rap/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PHONG CHIEU (Room) Management =====
+app.get("/api/admin/phong-chieu", async (req, res) => {
+  try {
+    const { id_rap } = req.query;
+    let query = `
+      SELECT 
+        id_pc, 
+        id_rap, 
+        id_loai, 
+        ten_phong, 
+        trang_thai, 
+        suc_chua
+      FROM phong_chieu
+    `;
+    const params = [];
+    
+    if (id_rap) {
+      query += ` WHERE id_rap = $1`;
+      params.push(id_rap);
+    }
+    
+    query += ` ORDER BY id_rap, id_pc`;
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/phong-chieu error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/phong-chieu", async (req, res) => {
+  const { id_rap, id_loai, ten_phong, trang_thai, suc_chua } = req.body;
+  try {
+    if (!id_rap || !ten_phong) {
+      return res.status(400).json({ 
+        error: "Thiếu thông tin: id_rap và ten_phong là bắt buộc" 
+      });
+    }
+    
+    const result = await pool.query(
+      `INSERT INTO phong_chieu (id_rap, id_loai, ten_phong, trang_thai, suc_chua)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id_pc, id_rap, id_loai, ten_phong, trang_thai, suc_chua`,
+      [id_rap, id_loai || 1, ten_phong, trang_thai || "Sẵn sàng", suc_chua || 100]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/phong-chieu error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/phong-chieu/:id", async (req, res) => {
+  const { id } = req.params;
+  const { id_rap, id_loai, ten_phong, trang_thai, suc_chua } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE phong_chieu
+       SET id_rap = COALESCE($1, id_rap),
+           id_loai = COALESCE($2, id_loai),
+           ten_phong = COALESCE($3, ten_phong),
+           trang_thai = COALESCE($4, trang_thai),
+           suc_chua = COALESCE($5, suc_chua)
+       WHERE id_pc = $6
+       RETURNING id_pc, id_rap, id_loai, ten_phong, trang_thai, suc_chua`,
+      [id_rap, id_loai, ten_phong, trang_thai, suc_chua, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Phòng chiếu không tồn tại" });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/phong-chieu/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/phong-chieu/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Check if room has seats
+    const checkResult = await pool.query(
+      `SELECT COUNT(*) as count FROM ghe WHERE id_pc = $1`,
+      [id]
+    );
+    if (checkResult.rows[0].count > 0) {
+      return res.status(400).json({ 
+        error: "Không thể xóa phòng vì còn có ghế liên kết" 
+      });
+    }
+    
+    const result = await pool.query(
+      `DELETE FROM phong_chieu WHERE id_pc = $1 RETURNING id_pc`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Phòng chiếu không tồn tại" });
+    }
+    res.json({ message: "Xóa phòng chiếu thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/phong-chieu/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, async () => {
   console.log(`Server is running at http://localhost:${PORT}`);
 
