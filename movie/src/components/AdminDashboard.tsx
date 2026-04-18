@@ -37,6 +37,7 @@ interface Room {
 const AdminDashboard = () => {
   const [movies, setMovies] = useState<AdminMovie[]>([]);
   const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms">("movies");
+  const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMovie, setSelectedMovie] = useState<AdminMovie | null>(null);
@@ -449,6 +450,13 @@ const AdminDashboard = () => {
           {menuItems.map((item, index) => (
             <div
               key={index}
+              onClick={() => {
+                if (index === 1) {
+                  setActiveSubTab("rooms");
+                  handleResetForm();
+                  handleResetGenreForm();
+                }
+              }}
               style={{
                 padding: "1rem 1.5rem",
                 display: "flex",
@@ -468,62 +476,84 @@ const AdminDashboard = () => {
 
         {/* Middle Column: Movie Table */}
         <section style={{ flex: 1, padding: "1.5rem", backgroundColor: "rgba(0,0,0,0.7)", overflowY: "auto" }}>
-          <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", borderBottom: "1px solid #333", paddingBottom: "1rem" }}>
-            <button
-              onClick={() => {
-                setActiveSubTab("movies");
-                handleResetGenreForm();
-                handleResetCinemaForm();
-              }}
-              style={{
-                padding: "0.5rem 1rem",
-                background: activeSubTab === "movies" ? "#e50914" : "transparent",
-                color: "white",
-                border: activeSubTab === "movies" ? "none" : "1px solid #444",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: activeSubTab === "movies" ? "bold" : "normal"
-              }}
-            >
-              Quản lý phim
-            </button>
-            <button
-              onClick={() => {
-                setActiveSubTab("genres");
-                handleResetForm();
-                handleResetCinemaForm();
-              }}
-              style={{
-                padding: "0.5rem 1rem",
-                background: activeSubTab === "genres" ? "#e50914" : "transparent",
-                color: "white",
-                border: activeSubTab === "genres" ? "none" : "1px solid #444",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: activeSubTab === "genres" ? "bold" : "normal"
-              }}
-            >
-              Quản lý thể loại
-            </button>
-            <button
-              onClick={() => {
-                setActiveSubTab("rooms");
-                handleResetForm();
-                handleResetGenreForm();
-              }}
-              style={{
-                padding: "0.5rem 1rem",
-                background: activeSubTab === "rooms" ? "#e50914" : "transparent",
-                color: "white",
-                border: activeSubTab === "rooms" ? "none" : "1px solid #444",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: activeSubTab === "rooms" ? "bold" : "normal"
-              }}
-            >
-              Quản lý phòng & Rạp
-            </button>
-          </div>
+          {activeSubTab !== "rooms" && (
+            <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", borderBottom: "1px solid #333", paddingBottom: "1rem" }}>
+              <button
+                onClick={() => {
+                  setActiveSubTab("movies");
+                  handleResetGenreForm();
+                  handleResetCinemaForm();
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: activeSubTab === "movies" ? "#e50914" : "transparent",
+                  color: "white",
+                  border: activeSubTab === "movies" ? "none" : "1px solid #444",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: activeSubTab === "movies" ? "bold" : "normal"
+                }}
+              >
+                Quản lý phim
+              </button>
+              <button
+                onClick={() => {
+                  setActiveSubTab("genres");
+                  handleResetForm();
+                  handleResetCinemaForm();
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: activeSubTab === "genres" ? "#e50914" : "transparent",
+                  color: "white",
+                  border: activeSubTab === "genres" ? "none" : "1px solid #444",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: activeSubTab === "genres" ? "bold" : "normal"
+                }}
+              >
+                Quản lý thể loại
+              </button>
+            </div>
+          )}
+
+          {activeSubTab === "rooms" && (
+            <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", borderBottom: "1px solid #333", paddingBottom: "1rem" }}>
+              <button
+                onClick={() => {
+                  setActiveRoomTab("cinemas");
+                  handleResetRoomForm();
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: activeRoomTab === "cinemas" ? "#e50914" : "transparent",
+                  color: "white",
+                  border: activeRoomTab === "cinemas" ? "none" : "1px solid #444",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: activeRoomTab === "cinemas" ? "bold" : "normal"
+                }}
+              >
+                Quản lý rạp
+              </button>
+              <button
+                onClick={() => {
+                  setActiveRoomTab("rooms");
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: activeRoomTab === "rooms" ? "#e50914" : "transparent",
+                  color: "white",
+                  border: activeRoomTab === "rooms" ? "none" : "1px solid #444",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: activeRoomTab === "rooms" ? "bold" : "normal"
+                }}
+              >
+                Quản lý phòng
+              </button>
+            </div>
+          )}
 
           {activeSubTab === "movies" ? (
             <>
@@ -635,110 +665,124 @@ const AdminDashboard = () => {
             </>
           ) : (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-                <h2 style={{ fontSize: "1.5rem" }}>Quản lý phòng & Rạp</h2>
-                <span style={{ color: "#aaa", fontSize: "0.9rem" }}>{cinemas.length} rạp trong hệ thống</span>
-              </div>
+              {activeRoomTab === "cinemas" ? (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                    <h2 style={{ fontSize: "1.5rem" }}>Quản lý rạp</h2>
+                    <span style={{ color: "#aaa", fontSize: "0.9rem" }}>{cinemas.length} rạp trong hệ thống</span>
+                  </div>
 
-              <div style={{ marginBottom: "1.5rem" }}>
-                <h3 style={{ fontSize: "1rem", marginBottom: "0.8rem", color: "#e50914" }}>Danh sách Rạp</h3>
-                <div style={{ 
-                  maxHeight: "300px", 
-                  overflowY: "auto", 
-                  background: "#222", 
-                  border: "1px solid #444", 
-                  borderRadius: "4px"
-                }}>
-                  {cinemas.map((cinema) => (
-                    <div
-                      key={cinema.id_rap}
-                      style={{
-                        padding: "0.8rem",
-                        borderBottom: "1px solid #333",
-                        backgroundColor: selectedCinema?.id_rap === cinema.id_rap ? "rgba(229, 9, 20, 0.2)" : "transparent",
-                        transition: "0.2s",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center"
-                      }}
-                    >
+                  <div style={{ 
+                    maxHeight: "calc(100vh - 200px)", 
+                    overflowY: "auto", 
+                    background: "#222", 
+                    border: "1px solid #444", 
+                    borderRadius: "4px"
+                  }}>
+                    {cinemas.map((cinema) => (
                       <div
-                        onClick={() => handleEditCinemaClick(cinema)}
-                        style={{ flex: 1, cursor: "pointer" }}
-                      >
-                        <div style={{ fontWeight: "bold", color: selectedCinema?.id_rap === cinema.id_rap ? "#e50914" : "white" }}>
-                          [{cinema.id_rap}] {cinema.diachi || "Chưa có tên"}
-                        </div>
-                        <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
-                          ĐT: {cinema.sdt_rap} | {cinema.trang_thai}
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCinema(cinema.id_rap);
-                        }}
+                        key={cinema.id_rap}
                         style={{
-                          padding: "0.3rem 0.6rem",
-                          background: "#333",
-                          color: "#ff4444",
-                          border: "1px solid #444",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "0.75rem",
-                          marginLeft: "0.5rem",
-                          whiteSpace: "nowrap"
+                          padding: "0.8rem",
+                          borderBottom: "1px solid #333",
+                          backgroundColor: selectedCinema?.id_rap === cinema.id_rap ? "rgba(229, 9, 20, 0.2)" : "transparent",
+                          transition: "0.2s",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center"
                         }}
                       >
-                        Xóa
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {selectedCinema && (
-                <div>
-                  <h3 style={{ fontSize: "1rem", marginBottom: "0.8rem", color: "#e50914" }}>
-                    Phòng chiếu - {selectedCinema.diachi}
-                  </h3>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", marginBottom: "1rem" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid #444", color: "#aaa" }}>
-                        <th style={{ padding: "0.5rem", textAlign: "left" }}>ID</th>
-                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Tên phòng</th>
-                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Sức chứa</th>
-                        <th style={{ padding: "0.5rem", textAlign: "left" }}>Trạng thái</th>
-                        <th style={{ padding: "0.5rem", textAlign: "right" }}>Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rooms.map((room) => (
-                        <tr
-                          key={room.id_pc}
-                          style={{ borderBottom: "1px solid #333", cursor: "pointer" }}
-                          onClick={() => handleEditRoomClick(room)}
+                        <div
+                          onClick={() => handleEditCinemaClick(cinema)}
+                          style={{ flex: 1, cursor: "pointer" }}
                         >
-                          <td style={{ padding: "0.5rem" }}>{room.id_pc}</td>
-                          <td style={{ padding: "0.5rem", fontWeight: "bold" }}>{room.ten_phong}</td>
-                          <td style={{ padding: "0.5rem" }}>{room.suc_chua}</td>
-                          <td style={{ padding: "0.5rem" }}>{room.trang_thai}</td>
-                          <td style={{ padding: "0.5rem", textAlign: "right" }}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteRoom(room.id_pc);
-                              }}
-                              style={{ padding: "0.2rem 0.4rem", fontSize: "0.75rem", background: "#333", color: "#ff4444", border: "1px solid #444", borderRadius: "4px", cursor: "pointer" }}
+                          <div style={{ fontWeight: "bold", color: selectedCinema?.id_rap === cinema.id_rap ? "#e50914" : "white" }}>
+                            [{cinema.id_rap}] {cinema.diachi || "Chưa có tên"}
+                          </div>
+                          <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
+                            ĐT: {cinema.sdt_rap} | {cinema.trang_thai}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCinema(cinema.id_rap);
+                          }}
+                          style={{
+                            padding: "0.3rem 0.6rem",
+                            background: "#333",
+                            color: "#ff4444",
+                            border: "1px solid #444",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            marginLeft: "0.5rem",
+                            whiteSpace: "nowrap"
+                          }}
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                    <h2 style={{ fontSize: "1.5rem" }}>Quản lý phòng chiếu</h2>
+                    <span style={{ color: "#aaa", fontSize: "0.9rem" }}>{rooms.length} phòng trong hệ thống</span>
+                  </div>
+
+                  {selectedCinema && (
+                    <div>
+                      <h3 style={{ fontSize: "1rem", marginBottom: "0.8rem", color: "#e50914" }}>
+                        Phòng chiếu - {selectedCinema.diachi}
+                      </h3>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", marginBottom: "1rem" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #444", color: "#aaa" }}>
+                            <th style={{ padding: "0.5rem", textAlign: "left" }}>ID</th>
+                            <th style={{ padding: "0.5rem", textAlign: "left" }}>Tên phòng</th>
+                            <th style={{ padding: "0.5rem", textAlign: "left" }}>Sức chứa</th>
+                            <th style={{ padding: "0.5rem", textAlign: "left" }}>Trạng thái</th>
+                            <th style={{ padding: "0.5rem", textAlign: "right" }}>Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rooms.map((room) => (
+                            <tr
+                              key={room.id_pc}
+                              style={{ borderBottom: "1px solid #333", cursor: "pointer" }}
+                              onClick={() => handleEditRoomClick(room)}
                             >
-                              Xóa
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                              <td style={{ padding: "0.5rem" }}>{room.id_pc}</td>
+                              <td style={{ padding: "0.5rem", fontWeight: "bold" }}>{room.ten_phong}</td>
+                              <td style={{ padding: "0.5rem" }}>{room.suc_chua}</td>
+                              <td style={{ padding: "0.5rem" }}>{room.trang_thai}</td>
+                              <td style={{ padding: "0.5rem", textAlign: "right" }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteRoom(room.id_pc);
+                                  }}
+                                  style={{ padding: "0.2rem 0.4rem", fontSize: "0.75rem", background: "#333", color: "#ff4444", border: "1px solid #444", borderRadius: "4px", cursor: "pointer" }}
+                                >
+                                  Xóa
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {!selectedCinema && (
+                    <div style={{ textAlign: "center", padding: "2rem", color: "#666" }}>
+                      <p>Vui lòng chọn một rạp từ tab "Quản lý rạp" để xem phòng chiếu</p>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -940,64 +984,7 @@ const AdminDashboard = () => {
             </>
           ) : (
             <>
-              {selectedCinema ? (
-                <>
-                  <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>
-                    {selectedRoom ? "Chỉnh sửa phòng" : "Thêm phòng mới"} - {selectedCinema.diachi}
-                  </h3>
-                  <form onSubmit={handleSubmitRoom} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                      <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Tên phòng</label>
-                      <input
-                        type="text" required
-                        value={roomFormData.ten_phong}
-                        onChange={(e) => setRoomFormData({ ...roomFormData, ten_phong: e.target.value })}
-                        style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
-                      />
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Sức chứa</label>
-                        <input
-                          type="number" required min="1"
-                          value={roomFormData.suc_chua}
-                          onChange={(e) => setRoomFormData({ ...roomFormData, suc_chua: parseInt(e.target.value) })}
-                          style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
-                        />
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Trạng thái</label>
-                        <select
-                          value={roomFormData.trang_thai}
-                          onChange={(e) => setRoomFormData({ ...roomFormData, trang_thai: e.target.value })}
-                          style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
-                        >
-                          <option value="Sẵn sàng">Sẵn sàng</option>
-                          <option value="Bảo trì">Bảo trì</option>
-                          <option value="Không sử dụng">Không sử dụng</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
-                      <button
-                        type="submit"
-                        style={{ flex: 1, padding: "0.75rem", backgroundColor: "#e50914", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
-                      >
-                        {selectedRoom ? "Cập nhật" : "Thêm mới"}
-                      </button>
-                      {selectedRoom && (
-                        <button
-                          type="button"
-                          onClick={handleResetRoomForm}
-                          style={{ flex: 1, padding: "0.75rem", backgroundColor: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
-                        >
-                          Hủy
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </>
-              ) : (
+              {activeRoomTab === "cinemas" ? (
                 <>
                   <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>
                     {selectedCinema ? "Chỉnh sửa rạp" : "Thêm rạp mới"}
@@ -1051,6 +1038,71 @@ const AdminDashboard = () => {
                       )}
                     </div>
                   </form>
+                </>
+              ) : (
+                <>
+                  {selectedCinema ? (
+                    <>
+                      <h3 style={{ marginBottom: "1.5rem", color: "#e50914" }}>
+                        {selectedRoom ? "Chỉnh sửa phòng" : "Thêm phòng mới"} - {selectedCinema.diachi}
+                      </h3>
+                      <form onSubmit={handleSubmitRoom} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                          <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Tên phòng</label>
+                          <input
+                            type="text" required
+                            value={roomFormData.ten_phong}
+                            onChange={(e) => setRoomFormData({ ...roomFormData, ten_phong: e.target.value })}
+                            style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                          />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                            <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Sức chứa</label>
+                            <input
+                              type="number" required min="1"
+                              value={roomFormData.suc_chua}
+                              onChange={(e) => setRoomFormData({ ...roomFormData, suc_chua: parseInt(e.target.value) })}
+                              style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                            />
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                            <label style={{ fontSize: "0.85rem", color: "#aaa" }}>Trạng thái</label>
+                            <select
+                              value={roomFormData.trang_thai}
+                              onChange={(e) => setRoomFormData({ ...roomFormData, trang_thai: e.target.value })}
+                              style={{ padding: "0.6rem", background: "#333", border: "1px solid #444", color: "white", borderRadius: "4px" }}
+                            >
+                              <option value="Sẵn sàng">Sẵn sàng</option>
+                              <option value="Bảo trì">Bảo trì</option>
+                              <option value="Không sử dụng">Không sử dụng</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
+                          <button
+                            type="submit"
+                            style={{ flex: 1, padding: "0.75rem", backgroundColor: "#e50914", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
+                          >
+                            {selectedRoom ? "Cập nhật" : "Thêm mới"}
+                          </button>
+                          {selectedRoom && (
+                            <button
+                              type="button"
+                              onClick={handleResetRoomForm}
+                              style={{ flex: 1, padding: "0.75rem", backgroundColor: "#333", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                            >
+                              Hủy
+                            </button>
+                          )}
+                        </div>
+                      </form>
+                    </>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "2rem", color: "#666" }}>
+                      <p>Vui lòng chọn một rạp từ tab "Quản lý rạp" để thêm hoặc chỉnh sửa phòng</p>
+                    </div>
+                  )}
                 </>
               )}
             </>
