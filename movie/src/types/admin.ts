@@ -24,3 +24,27 @@ export interface AdminMovie {
   directors: string[];
   actors: string[];
 }
+
+export interface Cinema {
+  id_rap: number;
+  diachi: string;
+  sdt_rap: string;
+  trang_thai: string;
+}
+
+export interface Room {
+  id_pc: number;
+  id_rap: number;
+  id_loai: number;
+  ten_phong: string;
+  trang_thai: string;
+  suc_chua: number;
+  ten_loai?: string;
+  ten_rap?: string;
+}
+
+export interface RoomType {
+  id_loai: number;
+  ten_loai: string;
+  gia: number;
+}
