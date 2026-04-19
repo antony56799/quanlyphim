@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Background from "./layout/Background";
 import Header from "./layout/Header";
-import type { AdminMovie, Genre, Cinema, Room, RoomType } from "../types/admin";
+import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime } from "../types/admin";
 import Sidebar from "./admin/Sidebar";
 import TopTabs from "./admin/TopTabs";
 import MovieTable from "./admin/MovieTable";
@@ -9,15 +9,16 @@ import GenreTable from "./admin/GenreTable";
 import CinemaList from "./admin/CinemaList";
 import RoomTable from "./admin/RoomTable";
 import RoomTypeTable from "./admin/RoomTypeTable";
-import RightForm from "./admin/RightForm";
+import { RightForm } from "./admin/RightForm";
 import SeatManager from "./admin/SeatManager";
+import ShowTimeTable from "./admin/ShowTimeTable";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const AdminDashboard = () => {
   // --- States ---
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes">("movies");
   const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms" | "roomTypes">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,6 +26,19 @@ const AdminDashboard = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [selectedCinemaIdForFilter, setSelectedCinemaIdForFilter] = useState<number | "all">("all");
+
+  const [showtimes, setShowtimes] = useState<Showtime[]>([]);
+  const [selectedShowtime, setSelectedShowtime] = useState<Showtime | null>(null);
+  const [showtimeFilterCinemaId, setShowtimeFilterCinemaId] = useState<number | "all">("all");
+  const [showtimeFilterRoomId, setShowtimeFilterRoomId] = useState<number | "all">("all");
+  const [showtimeFormData, setShowtimeFormData] = useState({
+    id_phim: 0,
+    id_rap: 0,
+    id_pc: 0,
+    id_gia: 0,
+    gio_bat_dau: "",
+    gio_ket_thuc: "",
+  });
 
   // Selection states
   const [selectedMovie, setSelectedMovie] = useState<AdminMovie | null>(null);
@@ -70,7 +84,7 @@ const AdminDashboard = () => {
   });
 
   // --- API Calls ---
-  const loadMovies = async () => {
+  const loadMovies = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await fetch(`${API_BASE_URL}/api/admin/movies`);
@@ -86,20 +100,20 @@ const AdminDashboard = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loadGenres = async () => {
+  const loadGenres = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/genres`);
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
           const formattedGenres: Genre[] = data.map((item, index) => {
-            if (typeof item === 'string') {
+            if (typeof item === "string") {
               return { id_the_loai: index + 1, ten_the_loai: item };
             }
-            const id = ('id_the_loai' in item ? item.id_the_loai : ('id' in item ? item.id : undefined)) || index + 1;
-            const name = ('ten_the_loai' in item ? item.ten_the_loai : ('name' in item ? item.name : undefined)) || "Không rõ";
+            const id = ("id_the_loai" in item ? item.id_the_loai : ("id" in item ? item.id : undefined)) || index + 1;
+            const name = ("ten_the_loai" in item ? item.ten_the_loai : ("name" in item ? item.name : undefined)) || "Không rõ";
             return { id_the_loai: id, ten_the_loai: name };
           });
           formattedGenres.sort((a, b) => a.id_the_loai - b.id_the_loai);
@@ -109,9 +123,9 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error("Error loading genres:", error);
     }
-  };
+  }, []);
 
-  const loadCinemas = async () => {
+  const loadCinemas = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/rap`);
       if (response.ok) {
@@ -121,9 +135,9 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error("Error loading cinemas:", error);
     }
-  };
+  }, []);
 
-  const loadRooms = async (cinemaId?: number | "all") => {
+  const loadRooms = useCallback(async (cinemaId?: number | "all") => {
     try {
       let url = `${API_BASE_URL}/api/admin/phong-chieu`;
       if (cinemaId && cinemaId !== "all") {
@@ -137,9 +151,26 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error("Error loading rooms:", error);
     }
-  };
+  }, []);
 
-  const loadRoomTypes = async () => {
+  const loadShowtimes = useCallback(async (cinemaId: number | "all", roomId: number | "all") => {
+    try {
+      const params = new URLSearchParams();
+      if (cinemaId !== "all") params.set("id_rap", String(cinemaId));
+      if (roomId !== "all") params.set("id_pc", String(roomId));
+
+      const url = `${API_BASE_URL}/api/admin/suat-chieu${params.toString() ? `?${params.toString()}` : ""}`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setShowtimes(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error("Error loading showtimes:", error);
+    }
+  }, []);
+
+  const loadRoomTypes = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/loaiphong`);
       if (response.ok) {
@@ -149,7 +180,7 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error("Error loading room types:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadMovies();
@@ -157,13 +188,13 @@ const AdminDashboard = () => {
     loadCinemas();
     loadRoomTypes();
     loadRooms();
-  }, []);
+  }, [loadMovies, loadGenres, loadCinemas, loadRoomTypes, loadRooms]);
 
   useEffect(() => {
     if (activeSubTab === "rooms" && activeRoomTab === "rooms") {
       loadRooms(selectedCinemaIdForFilter);
     }
-  }, [selectedCinemaIdForFilter, activeRoomTab, activeSubTab]);
+  }, [selectedCinemaIdForFilter, activeRoomTab, activeSubTab, loadRooms]);
 
   // --- Handlers ---
   const handleUpdateStatus = async (id: number, newStatus: string) => {
@@ -371,12 +402,25 @@ const AdminDashboard = () => {
     setRoomTypeFormData({ ten_loai: "", gia: 0 });
   };
 
+  const handleResetShowtimeForm = () => {
+    setSelectedShowtime(null);
+    setShowtimeFormData({
+      id_phim: 0,
+      id_rap: 0,
+      id_pc: 0,
+      id_gia: 0,
+      gio_bat_dau: "",
+      gio_ket_thuc: "",
+    });
+  };
+
   const handleResetAllForms = () => {
     handleResetForm();
     handleResetGenreForm();
     handleResetCinemaForm();
     handleResetRoomForm();
     handleResetRoomTypeForm();
+    handleResetShowtimeForm();
   };
 
   // --- Click Handlers ---
@@ -433,6 +477,91 @@ const AdminDashboard = () => {
   const handleEditRoomType = (type: RoomType) => {
     setSelectedRoomType(type);
     setRoomTypeFormData({ ten_loai: type.ten_loai, gia: type.gia });
+  };
+
+  useEffect(() => {
+    if (activeSubTab !== "showtimes") return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (showtimeFilterCinemaId !== "all") params.set("id_rap", String(showtimeFilterCinemaId));
+        if (showtimeFilterRoomId !== "all") params.set("id_pc", String(showtimeFilterRoomId));
+
+        const url = `${API_BASE_URL}/api/admin/suat-chieu${params.toString() ? `?${params.toString()}` : ""}`;
+        const response = await fetch(url, { signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          setShowtimes(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Error loading showtimes:", error);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [activeSubTab, showtimeFilterCinemaId, showtimeFilterRoomId]);
+
+  const handleEditShowtime = (st: Showtime) => {
+    setSelectedShowtime(st);
+    setShowtimeFormData({
+      id_phim: st.id_phim,
+      id_rap: st.id_rap,
+      id_pc: st.id_pc,
+      id_gia: st.id_gia,
+      gio_bat_dau: st.gio_bat_dau.slice(0, 16),
+      gio_ket_thuc: st.gio_ket_thuc.slice(0, 16),
+    });
+  };
+
+  const handleSubmitShowtime = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = selectedShowtime
+      ? `${API_BASE_URL}/api/admin/suat-chieu/${selectedShowtime.id_sc}`
+      : `${API_BASE_URL}/api/admin/suat-chieu`;
+    const method = selectedShowtime ? "PUT" : "POST";
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_phim: showtimeFormData.id_phim,
+          id_pc: showtimeFormData.id_pc,
+          gio_bat_dau: showtimeFormData.gio_bat_dau,
+          gio_ket_thuc: showtimeFormData.gio_ket_thuc,
+          id_gia: showtimeFormData.id_gia,
+        }),
+      });
+      if (response.ok) {
+        handleResetShowtimeForm();
+        loadShowtimes(showtimeFilterCinemaId, showtimeFilterRoomId);
+      } else {
+        const data = await response.json().catch(() => null);
+        alert(data?.error || "Không thể lưu suất chiếu");
+      }
+    } catch (error) {
+      console.error("Error submitting showtime:", error);
+    }
+  };
+
+  const handleDeleteShowtime = async (id: number) => {
+    if (!window.confirm("Bạn có chắc muốn xóa suất chiếu này?")) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/suat-chieu/${id}`, { method: "DELETE" });
+      if (response.ok) {
+        if (selectedShowtime?.id_sc === id) handleResetShowtimeForm();
+        loadShowtimes(showtimeFilterCinemaId, showtimeFilterRoomId);
+      } else {
+        const data = await response.json().catch(() => null);
+        alert(data?.error || "Không thể xóa suất chiếu");
+      }
+    } catch (error) {
+      console.error("Error deleting showtime:", error);
+    }
   };
 
   return (
@@ -510,6 +639,25 @@ const AdminDashboard = () => {
                       )}
                     </>
                   )}
+
+                  {activeSubTab === "showtimes" && (
+                    <ShowTimeTable
+                      showtimes={showtimes}
+                      cinemas={cinemas}
+                      rooms={rooms}
+                      selectedCinemaId={showtimeFilterCinemaId}
+                      selectedRoomId={showtimeFilterRoomId}
+                      onCinemaChange={(id: number | "all") => {
+                        setShowtimeFilterCinemaId(id);
+                        setShowtimeFilterRoomId("all");
+                        if (id !== "all") loadRooms(id);
+                        else loadRooms();
+                      }}
+                      onRoomChange={setShowtimeFilterRoomId}
+                      onEditShowtimeClick={handleEditShowtime}
+                      onDeleteShowtime={handleDeleteShowtime}
+                    />
+                  )}
                 </>
               )}
             </section>
@@ -545,6 +693,14 @@ const AdminDashboard = () => {
               onResetRoomForm={handleResetRoomForm}
               onResetRoomTypeForm={handleResetRoomTypeForm}
               loadGenres={loadGenres}
+              selectedShowtime={selectedShowtime}
+              showtimeFormData={showtimeFormData}
+              movies={movies}
+              cinemas={cinemas}
+              rooms={rooms}
+              onShowtimeFormChange={(field, val) => setShowtimeFormData({ ...showtimeFormData, [field]: val })}
+              onShowtimeSubmit={handleSubmitShowtime}
+              onResetShowtimeForm={handleResetShowtimeForm}
             />
           </>
         )}

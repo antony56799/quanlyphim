@@ -862,21 +862,36 @@ app.post("/api/admin/ghe/bulk-save", async (req, res) => {
 
   const normalized = [];
   const keySet = new Set();
+  const idSet = new Set();
   for (const item of seats) {
+    const id_ghe = item.id_ghe === undefined || item.id_ghe === null ? null : Number(item.id_ghe);
+    if (id_ghe !== null) {
+      if (Number.isNaN(id_ghe)) {
+        return res.status(400).json({ error: "Dữ liệu ghế không hợp lệ (id_ghe)" });
+      }
+      if (idSet.has(id_ghe)) {
+        return res.status(400).json({ error: "Danh sách ghế bị trùng (id_ghe)" });
+      }
+      idSet.add(id_ghe);
+    }
+
     const hang = String(item.hang ?? "").trim().toUpperCase();
     const so = Number(item.so);
-    if (!hang || Number.isNaN(so)) {
+    if (!hang || Number.isNaN(so) || so < 1) {
       return res.status(400).json({ error: "Dữ liệu ghế không hợp lệ (hang, so)" });
     }
+
     const key = `${hang}|${so}`;
     if (keySet.has(key)) {
       return res.status(400).json({ error: "Danh sách ghế bị trùng (hang, so)" });
     }
     keySet.add(key);
+
     normalized.push({
+      id_ghe,
       hang,
       so,
-      id_loaighe: item.id_loaighe ?? null,
+      id_loaighe: item.id_loaighe ?? 1,
       tinhtrang: parseBooleanWithDefault(item.tinhtrang, true),
     });
   }
@@ -891,41 +906,67 @@ app.post("/api/admin/ghe/bulk-save", async (req, res) => {
     );
 
     const existingByKey = new Map();
+    const existingById = new Map();
+    const existingIds = [];
     for (const row of existingRes.rows) {
       const key = `${String(row.hang).trim().toUpperCase()}|${Number(row.so)}`;
       existingByKey.set(key, row);
+      existingById.set(row.id_ghe, row);
+      existingIds.push(row.id_ghe);
     }
 
-    const desiredByKey = new Map();
-    for (const s of normalized) {
-      desiredByKey.set(`${s.hang}|${s.so}`, s);
-    }
-
-    const toDeleteIds = [];
+    const usedExistingIds = new Set();
     const toUpdate = [];
+    const movedUpdateIds = [];
     const toInsert = [];
 
-    for (const [key, row] of existingByKey.entries()) {
-      const desired = desiredByKey.get(key);
-      if (!desired) {
-        toDeleteIds.push(row.id_ghe);
-        continue;
-      }
-      const nextLoai = desired.id_loaighe ?? null;
-      const nextTinhTrang = desired.tinhtrang;
-      if ((row.id_loaighe ?? null) !== nextLoai || row.tinhtrang !== nextTinhTrang) {
-        toUpdate.push({ id_ghe: row.id_ghe, id_loaighe: nextLoai, tinhtrang: nextTinhTrang });
-      }
-    }
+    for (const desired of normalized) {
+      const desiredKey = `${desired.hang}|${desired.so}`;
 
-    for (const [key, desired] of desiredByKey.entries()) {
-      if (!existingByKey.has(key)) {
+      let target = null;
+      if (desired.id_ghe !== null && desired.id_ghe !== undefined) {
+        target = existingById.get(desired.id_ghe) || null;
+      }
+      if (!target) {
+        target = existingByKey.get(desiredKey) || null;
+      }
+
+      if (target) {
+        usedExistingIds.add(target.id_ghe);
+        const nextLoai = desired.id_loaighe ?? null;
+        const nextTinhTrang = desired.tinhtrang;
+        const moved = `${String(target.hang).trim().toUpperCase()}|${Number(target.so)}` !== desiredKey;
+
+        if (moved || (target.id_loaighe ?? null) !== nextLoai || target.tinhtrang !== nextTinhTrang) {
+          toUpdate.push({
+            id_ghe: target.id_ghe,
+            hang: desired.hang,
+            so: desired.so,
+            id_loaighe: nextLoai,
+            tinhtrang: nextTinhTrang,
+            moved,
+          });
+          if (moved) movedUpdateIds.push(target.id_ghe);
+        }
+      } else {
         toInsert.push(desired);
       }
     }
 
+    const toDeleteIds = existingIds.filter((id) => !usedExistingIds.has(id));
+
     if (toDeleteIds.length > 0) {
       await client.query(`DELETE FROM ghe WHERE id_ghe = ANY($1::int[])`, [toDeleteIds]);
+    }
+
+    if (movedUpdateIds.length > 0) {
+      await client.query(
+        `UPDATE ghe
+         SET hang = '__TMP__' || id_ghe::text,
+             so = -id_ghe
+         WHERE id_ghe = ANY($1::int[])`,
+        [movedUpdateIds]
+      );
     }
 
     if (toUpdate.length > 0) {
@@ -933,16 +974,18 @@ app.post("/api/admin/ghe/bulk-save", async (req, res) => {
       const params = [];
       let idx = 1;
       for (const u of toUpdate) {
-        values.push(`($${idx++}::int, $${idx++}::int, $${idx++}::boolean)`);
-        params.push(u.id_ghe, u.id_loaighe, u.tinhtrang);
+        values.push(`(${idx++}::int, ${idx++}::varchar, ${idx++}::int, ${idx++}::int, ${idx++}::boolean)`);
+        params.push(u.id_ghe, u.hang, u.so, u.id_loaighe, u.tinhtrang);
       }
       await client.query(
         `
-        WITH updates(id_ghe, id_loaighe, tinhtrang) AS (
+        WITH updates(id_ghe, hang, so, id_loaighe, tinhtrang) AS (
           VALUES ${values.join(", ")}
         )
         UPDATE ghe g
-        SET id_loaighe = u.id_loaighe,
+        SET hang = u.hang,
+            so = u.so,
+            id_loaighe = u.id_loaighe,
             tinhtrang = u.tinhtrang
         FROM updates u
         WHERE g.id_ghe = u.id_ghe
@@ -978,9 +1021,225 @@ app.post("/api/admin/ghe/bulk-save", async (req, res) => {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("POST /api/admin/ghe/bulk-save error:", error.message);
+
+    if (error && error.code === "23503") {
+      return res.status(400).json({
+        error: "Không thể xóa/cập nhật ghế do đang có dữ liệu liên kết (ví dụ ghế đã được dùng cho suất chiếu)" ,
+      });
+    }
+
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
+  }
+});
+
+// ===== SUAT CHIEU (Showtime) Management =====
+app.get("/api/admin/suat-chieu", async (req, res) => {
+  try {
+    const { id_rap, id_pc, id_phim, from, to } = req.query;
+
+    let query = `
+      SELECT
+        sc.id_sc,
+        sc.id_phim,
+        p.ten_phim,
+        sc.id_pc,
+        pc.ten_phong,
+        pc.id_rap,
+        r.diachi AS ten_rap,
+        sc.gio_bat_dau,
+        sc.gio_ket_thuc,
+        sc.id_gia,
+        bg.ten_bang_gia,
+        COALESCE(bg.gia_tien, 0)::float8 AS gia_tien
+      FROM suat_chieu sc
+      JOIN phim p ON sc.id_phim = p.id_phim
+      JOIN phong_chieu pc ON sc.id_pc = pc.id_pc
+      JOIN rap r ON pc.id_rap = r.id_rap
+      JOIN bang_gia_co_ban bg ON sc.id_gia = bg.id_gia
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let idx = 1;
+
+    if (id_rap) {
+      query += ` AND pc.id_rap = ${idx++}`;
+      params.push(Number(id_rap));
+    }
+
+    if (id_pc) {
+      query += ` AND sc.id_pc = ${idx++}`;
+      params.push(Number(id_pc));
+    }
+
+    if (id_phim) {
+      query += ` AND sc.id_phim = ${idx++}`;
+      params.push(Number(id_phim));
+    }
+
+    if (from) {
+      query += ` AND sc.gio_bat_dau >= ${idx++}`;
+      params.push(from);
+    }
+
+    if (to) {
+      query += ` AND sc.gio_bat_dau <= ${idx++}`;
+      params.push(to);
+    }
+
+    query += ` ORDER BY sc.gio_bat_dau, sc.id_sc`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/suat-chieu error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/suat-chieu", async (req, res) => {
+  const { id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia } = req.body;
+  try {
+    if (!id_phim || !id_pc || !gio_bat_dau || !gio_ket_thuc || !id_gia) {
+      return res.status(400).json({
+        error: "Thiếu thông tin: id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia là bắt buộc",
+      });
+    }
+
+    const start = new Date(gio_bat_dau);
+    const end = new Date(gio_ket_thuc);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ error: "Thời gian không hợp lệ" });
+    }
+    if (end <= start) {
+      return res.status(400).json({ error: "gio_ket_thuc phải lớn hơn gio_bat_dau" });
+    }
+
+    const overlap = await pool.query(
+      `
+      SELECT 1
+      FROM suat_chieu
+      WHERE id_pc = $1
+        AND NOT (gio_ket_thuc <= $2 OR gio_bat_dau >= $3)
+      LIMIT 1
+      `,
+      [id_pc, gio_bat_dau, gio_ket_thuc]
+    );
+
+    if (overlap.rows.length > 0) {
+      return res.status(409).json({ error: "Suất chiếu bị trùng giờ với suất chiếu khác trong cùng phòng" });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO suat_chieu (id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id_sc, id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia
+      `,
+      [id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/suat-chieu error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/suat-chieu/:id", async (req, res) => {
+  const { id } = req.params;
+  const { id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia } = req.body;
+  try {
+    if (!id_phim || !id_pc || !gio_bat_dau || !gio_ket_thuc || !id_gia) {
+      return res.status(400).json({
+        error: "Thiếu thông tin: id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia là bắt buộc",
+      });
+    }
+
+    const start = new Date(gio_bat_dau);
+    const end = new Date(gio_ket_thuc);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ error: "Thời gian không hợp lệ" });
+    }
+    if (end <= start) {
+      return res.status(400).json({ error: "gio_ket_thuc phải lớn hơn gio_bat_dau" });
+    }
+
+    const overlap = await pool.query(
+      `
+      SELECT 1
+      FROM suat_chieu
+      WHERE id_pc = $1
+        AND id_sc <> $2
+        AND NOT (gio_ket_thuc <= $3 OR gio_bat_dau >= $4)
+      LIMIT 1
+      `,
+      [id_pc, id, gio_bat_dau, gio_ket_thuc]
+    );
+
+    if (overlap.rows.length > 0) {
+      return res.status(409).json({ error: "Suất chiếu bị trùng giờ với suất chiếu khác trong cùng phòng" });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE suat_chieu
+      SET id_phim = $1,
+          id_pc = $2,
+          gio_bat_dau = $3,
+          gio_ket_thuc = $4,
+          id_gia = $5
+      WHERE id_sc = $6
+      RETURNING id_sc, id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia
+      `,
+      [id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Suất chiếu không tồn tại" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/suat-chieu/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/suat-chieu/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkVe = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM ve WHERE id_sc = $1`,
+      [id]
+    );
+    if (checkVe.rows[0].count > 0) {
+      return res.status(400).json({ error: "Không thể xóa suất chiếu vì đã có vé liên kết" });
+    }
+
+    const checkSeats = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM ghe_suat_chieu WHERE id_sc = $1`,
+      [id]
+    );
+    if (checkSeats.rows[0].count > 0) {
+      return res.status(400).json({ error: "Không thể xóa suất chiếu vì đã có dữ liệu ghế theo suất" });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM suat_chieu WHERE id_sc = $1 RETURNING id_sc`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Suất chiếu không tồn tại" });
+    }
+
+    res.json({ message: "Xóa suất chiếu thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/suat-chieu/:id error:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 

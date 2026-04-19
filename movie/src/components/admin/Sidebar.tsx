@@ -3,7 +3,7 @@ import { FaChartBar, FaDoorOpen, FaChair, FaCalendarAlt, FaFilm, FaUsers, FaUser
 
 interface SidebarProps {
   activeSubTab: string;
-  onTabChange: (tab: "movies" | "genres" | "rooms" | "seats") => void;
+  onTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes") => void;
   onResetForms: () => void;
 }
 
@@ -12,7 +12,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSubTab, onTabChange, onResetFor
     { icon: <FaChartBar />, label: "Quản lý doanh thu" },
     { icon: <FaDoorOpen />, label: "Quản lý phòng & Rạp", tab: "rooms" as const },
     { icon: <FaChair />, label: "Quản lý ghế", tab: "seats" as const },
-    { icon: <FaCalendarAlt />, label: "Quản lý suất chiếu" },
+    { icon: <FaCalendarAlt />, label: "Quản lý suất chiếu", tab: "showtimes" as const },
     { icon: <FaFilm />, label: "Phim & Thể loại", tab: "movies" as const },
     { icon: <FaUsers />, label: "Quản lý nhân sự" },
     { icon: <FaUserCircle />, label: "Quản lý tài khoản" },
@@ -26,7 +26,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSubTab, onTabChange, onResetFor
             ? activeSubTab === "rooms"
             : item.tab === "seats"
               ? activeSubTab === "seats"
-              : activeSubTab === "movies" || activeSubTab === "genres"
+              : item.tab === "showtimes"
+                ? activeSubTab === "showtimes"
+                : activeSubTab === "movies" || activeSubTab === "genres"
           : false;
         
         return (

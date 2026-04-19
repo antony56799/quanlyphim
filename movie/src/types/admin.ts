@@ -64,3 +64,22 @@ export interface Seat {
   ten_loaighe?: string | null;
   phu_phi?: number | null;
 }
+export interface BasePrice {
+  id_gia: number;
+  ten_bang_gia: string;
+  gia_tien: number;
+}
+export interface Showtime {
+  id_sc: number;
+  id_phim: number;
+  ten_phim: string;
+  id_pc: number;
+  ten_phong: string;
+  id_rap: number;
+  ten_rap: string;
+  gio_bat_dau: string;
+  gio_ket_thuc: string;
+  id_gia: number;
+  ten_bang_gia: string;
+  gia_tien: number;
+}

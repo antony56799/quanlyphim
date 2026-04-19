@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { Cinema, Room, Seat, SeatType } from "../../types/admin";
 
 type SeatDraft = {
+  id_ghe?: number;
   hang: string;
   so: number;
   id_loaighe: number | null;
@@ -45,7 +46,7 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
   const [seatTypes, setSeatTypes] = useState<SeatType[]>([]);
   const [seats, setSeats] = useState<Seat[]>([]);
 
-  const [activeSeatTab, setActiveSeatTab] = useState<"list" | "map">("list");
+  const [activeSeatTab, setActiveSeatTab] = useState<"list" | "map" | "types">("list");
 
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [seatForm, setSeatForm] = useState<SeatDraft>({
@@ -55,9 +56,15 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
     tinhtrang: true,
   });
 
+  const [selectedSeatType, setSelectedSeatType] = useState<SeatType | null>(null);
+  const [seatTypeFormData, setSeatTypeFormData] = useState({
+    ten_loaighe: "",
+    phu_phi: 0,
+  });
+
   const [gridRows, setGridRows] = useState(5);
   const [gridCols, setGridCols] = useState(10);
-  const [gridDefaultSeatTypeId, setGridDefaultSeatTypeId] = useState<number | "">("");
+  const [gridDefaultSeatTypeId, setGridDefaultSeatTypeId] = useState<number | "">(1);
   const [gridDefaultTinhTrang, setGridDefaultTinhTrang] = useState(true);
   const [previewSeats, setPreviewSeats] = useState<Map<string, SeatDraft>>(new Map());
   const [selectedPreviewKey, setSelectedPreviewKey] = useState<string | null>(null);
@@ -103,6 +110,7 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
       maxRow = Math.max(maxRow, rowLabelToIndex(hang));
       maxCol = Math.max(maxCol, so);
       next.set(seatKey(hang, so), {
+        id_ghe: s.id_ghe,
         hang,
         so,
         id_loaighe: s.id_loaighe ?? null,
@@ -158,9 +166,57 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
     if (selectedRoomId !== "") await loadSeats(selectedRoomId);
   };
 
+  const handleEditSeatType = (type: SeatType) => {
+    setSelectedSeatType(type);
+    setSeatTypeFormData({ ten_loaighe: type.ten_loaighe, phu_phi: type.phu_phi });
+  };
+
+  const handleResetSeatTypeForm = () => {
+    setSelectedSeatType(null);
+    setSeatTypeFormData({ ten_loaighe: "", phu_phi: 0 });
+  };
+
+  const handleSubmitSeatType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    ensureSeatTypesLoaded();
+
+    const url = selectedSeatType
+      ? `${apiBaseUrl}/api/admin/loaighe/${selectedSeatType.id_loaighe}`
+      : `${apiBaseUrl}/api/admin/loaighe`;
+
+    const method = selectedSeatType ? "PUT" : "POST";
+
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(seatTypeFormData),
+    });
+
+    if (!response.ok) return;
+    handleResetSeatTypeForm();
+    await loadSeatTypes();
+  };
+
+  const handleDeleteSeatType = async (id: number) => {
+    if (!window.confirm("Bạn có chắc muốn xóa loại ghế này?")) return;
+    const response = await fetch(`${apiBaseUrl}/api/admin/loaighe/${id}`, { method: "DELETE" });
+    if (!response.ok) return;
+    if (selectedSeatType?.id_loaighe === id) handleResetSeatTypeForm();
+    await loadSeatTypes();
+  };
+
   const buildFullGridPreview = () => {
+    const existingCount = seats.length;
+    const nextCount = gridRows * gridCols;
+    if (existingCount > 0) {
+      const ok = window.confirm(
+        `Tạo sơ đồ mới sẽ ghi đè preview hiện tại. Nếu bạn bấm "Lưu sơ đồ", các ghế không nằm trong sơ đồ mới có thể bị xóa.\n\nGhế hiện có trong DB: ${existingCount}\nGhế trong sơ đồ mới: ${nextCount}\n\nTiếp tục?`
+      );
+      if (!ok) return;
+    }
+
     const next = new Map<string, SeatDraft>();
-    const defaultLoai = gridDefaultSeatTypeId === "" ? null : gridDefaultSeatTypeId;
+    const defaultLoai = gridDefaultSeatTypeId === "" ? 1 : gridDefaultSeatTypeId;
 
     for (let r = 0; r < gridRows; r++) {
       const hang = toRowLabel(r);
@@ -204,7 +260,7 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
         next.delete(key);
         if (selectedPreviewKey === key) setSelectedPreviewKey(null);
       } else {
-        const defaultLoai = gridDefaultSeatTypeId === "" ? null : gridDefaultSeatTypeId;
+        const defaultLoai = gridDefaultSeatTypeId === "" ? 1 : gridDefaultSeatTypeId;
         next.set(key, { hang, so, id_loaighe: defaultLoai, tinhtrang: gridDefaultTinhTrang });
         setSelectedPreviewKey(key);
       }
@@ -219,6 +275,11 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
       const current = next.get(selectedPreviewKey);
       if (!current) return prev;
       const updated = { ...current, ...patch };
+
+      const rowIndex = rowLabelToIndex(updated.hang);
+      if (rowIndex + 1 > gridRows) setGridRows(rowIndex + 1);
+      if (updated.so > gridCols) setGridCols(updated.so);
+
       const nextKey = seatKey(updated.hang, updated.so);
       if (nextKey !== selectedPreviewKey) {
         if (next.has(nextKey)) return prev;
@@ -234,10 +295,35 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
 
   const handleSaveLayout = async () => {
     if (selectedRoomId === "") return;
+
+    const existingByKey = new Map<string, Seat>();
+    for (const s of seats) {
+      existingByKey.set(seatKey(s.hang, s.so), s);
+    }
+
+    const keepIds = new Set<number>();
+    for (const d of previewSeats.values()) {
+      if (d.id_ghe) {
+        keepIds.add(d.id_ghe);
+        continue;
+      }
+      const existing = existingByKey.get(seatKey(d.hang, d.so));
+      if (existing) keepIds.add(existing.id_ghe);
+    }
+
+    const deletedCount = seats.filter((s) => !keepIds.has(s.id_ghe)).length;
+    if (deletedCount > 0) {
+      const ok = window.confirm(
+        `Bạn sắp xóa ${deletedCount} ghế khỏi DB khi lưu sơ đồ. Tiếp tục?`
+      );
+      if (!ok) return;
+    }
+
     const payload = Array.from(previewSeats.values()).map((s) => ({
+      id_ghe: s.id_ghe,
       hang: s.hang,
       so: s.so,
-      id_loaighe: s.id_loaighe,
+      id_loaighe: s.id_loaighe ?? 1,
       tinhtrang: s.tinhtrang,
     }));
 
@@ -277,6 +363,17 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
             >
               Sơ đồ ghế
             </button>
+            <button
+              onClick={() => {
+                ensureSeatTypesLoaded();
+                setActiveSeatTab("types");
+                void loadSeatTypes();
+                handleResetSeatTypeForm();
+              }}
+              className={`tab-button ${activeSeatTab === "types" ? "active" : ""}`}
+            >
+              Loại ghế
+            </button>
           </div>
         </div>
 
@@ -284,58 +381,107 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
           <div className="table-header">
             <h2 className="table-title">Quản lý ghế</h2>
             <div className="table-controls">
-              <select
-                className="filter-select"
-                value={selectedCinemaId}
-                onChange={(e) => {
-                  ensureSeatTypesLoaded();
-                  const nextCinemaId = e.target.value ? parseInt(e.target.value) : "";
-                  setSelectedCinemaId(nextCinemaId);
-                  setSelectedRoomId("");
-                  setRooms([]);
-                  setSeats([]);
-                  setSelectedSeat(null);
-                  setActiveSeatTab("list");
-                  setSelectedPreviewKey(null);
-                  setPreviewSeats(new Map());
-                  if (nextCinemaId !== "") void loadRoomsForCinema(nextCinemaId);
-                }}
-              >
-                <option value="">Chọn rạp</option>
-                {cinemas.map((c) => (
-                  <option key={c.id_rap} value={c.id_rap}>
-                    {c.diachi || `Rạp ${c.id_rap}`}
-                  </option>
-                ))}
-              </select>
+              {activeSeatTab === "types" ? (
+                <button
+                  className="tab-button"
+                  onClick={() => {
+                    ensureSeatTypesLoaded();
+                    void loadSeatTypes();
+                  }}
+                >
+                  Tải lại
+                </button>
+              ) : (
+                <>
+                  <select
+                    className="filter-select"
+                    value={selectedCinemaId}
+                    onChange={(e) => {
+                      ensureSeatTypesLoaded();
+                      const nextCinemaId = e.target.value ? parseInt(e.target.value) : "";
+                      setSelectedCinemaId(nextCinemaId);
+                      setSelectedRoomId("");
+                      setRooms([]);
+                      setSeats([]);
+                      setSelectedSeat(null);
+                      setActiveSeatTab("list");
+                      setSelectedPreviewKey(null);
+                      setPreviewSeats(new Map());
+                      if (nextCinemaId !== "") void loadRoomsForCinema(nextCinemaId);
+                    }}
+                  >
+                    <option value="">Chọn rạp</option>
+                    {cinemas.map((c) => (
+                      <option key={c.id_rap} value={c.id_rap}>
+                        {c.diachi || `Rạp ${c.id_rap}`}
+                      </option>
+                    ))}
+                  </select>
 
-              <select
-                className="filter-select"
-                value={selectedRoomId}
-                onChange={(e) => {
-                  ensureSeatTypesLoaded();
-                  const nextRoomId = e.target.value ? parseInt(e.target.value) : "";
-                  setSelectedRoomId(nextRoomId);
-                  setSeats([]);
-                  setSelectedSeat(null);
-                  setActiveSeatTab("list");
-                  setSelectedPreviewKey(null);
-                  setPreviewSeats(new Map());
-                  if (nextRoomId !== "") void loadSeats(nextRoomId);
-                }}
-                disabled={selectedCinemaId === ""}
-              >
-                <option value="">Chọn phòng</option>
-                {rooms.map((r) => (
-                  <option key={r.id_pc} value={r.id_pc}>
-                    {r.ten_phong || `Phòng ${r.id_pc}`}
-                  </option>
-                ))}
-              </select>
+                  <select
+                    className="filter-select"
+                    value={selectedRoomId}
+                    onChange={(e) => {
+                      ensureSeatTypesLoaded();
+                      const nextRoomId = e.target.value ? parseInt(e.target.value) : "";
+                      setSelectedRoomId(nextRoomId);
+                      setSeats([]);
+                      setSelectedSeat(null);
+                      setActiveSeatTab("list");
+                      setSelectedPreviewKey(null);
+                      setPreviewSeats(new Map());
+                      if (nextRoomId !== "") void loadSeats(nextRoomId);
+                    }}
+                    disabled={selectedCinemaId === ""}
+                  >
+                    <option value="">Chọn phòng</option>
+                    {rooms.map((r) => (
+                      <option key={r.id_pc} value={r.id_pc}>
+                        {r.ten_phong || `Phòng ${r.id_pc}`}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
           </div>
 
-          {selectedRoomId === "" ? (
+          {activeSeatTab === "types" ? (
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Tên loại</th>
+                  <th>Phụ phí</th>
+                  <th className="text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {seatTypes.map((t) => (
+                  <tr
+                    key={t.id_loaighe}
+                    className="clickable-row"
+                    onClick={() => handleEditSeatType(t)}
+                  >
+                    <td>{t.id_loaighe}</td>
+                    <td className="bold">{t.ten_loaighe}</td>
+                    <td>{t.phu_phi.toLocaleString("vi-VN")} đ</td>
+                    <td className="text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSeatType(t.id_loaighe);
+                        }}
+                        className="delete-button-small"
+                      >
+                        Xóa
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : selectedRoomId === "" ? (
             <div className="empty-message">
               <p>Vui lòng chọn rạp và phòng chiếu để quản lý ghế</p>
             </div>
@@ -398,14 +544,40 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
                     type="number"
                     min={1}
                     value={gridRows}
-                    onChange={(e) => setGridRows(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => {
+                      const nextRows = Math.max(1, parseInt(e.target.value) || 1);
+                      setGridRows(nextRows);
+                      setPreviewSeats((prev) => {
+                        const next = new Map(prev);
+                        for (const [k, d] of next.entries()) {
+                          if (rowLabelToIndex(d.hang) >= nextRows) {
+                            next.delete(k);
+                            if (selectedPreviewKey === k) setSelectedPreviewKey(null);
+                          }
+                        }
+                        return next;
+                      });
+                    }}
                   />
                   <input
                     className="filter-select"
                     type="number"
                     min={1}
                     value={gridCols}
-                    onChange={(e) => setGridCols(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => {
+                      const nextCols = Math.max(1, parseInt(e.target.value) || 1);
+                      setGridCols(nextCols);
+                      setPreviewSeats((prev) => {
+                        const next = new Map(prev);
+                        for (const [k, d] of next.entries()) {
+                          if (d.so > nextCols) {
+                            next.delete(k);
+                            if (selectedPreviewKey === k) setSelectedPreviewKey(null);
+                          }
+                        }
+                        return next;
+                      });
+                    }}
                   />
                   <select
                     className="filter-select"
@@ -477,7 +649,40 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
       </section>
 
       <aside className="right-form-aside">
-        {selectedRoomId === "" ? (
+        {activeSeatTab === "types" ? (
+          <>
+            <h3 className="form-title">{selectedSeatType ? "Chỉnh sửa loại ghế" : "Thêm loại ghế"}</h3>
+            <form onSubmit={handleSubmitSeatType} className="admin-form">
+              <div className="form-group">
+                <label>Tên loại ghế</label>
+                <input
+                  type="text"
+                  required
+                  value={seatTypeFormData.ten_loaighe}
+                  onChange={(e) => setSeatTypeFormData((prev) => ({ ...prev, ten_loaighe: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label>Phụ phí (đ)</label>
+                <input
+                  type="number"
+                  value={seatTypeFormData.phu_phi}
+                  onChange={(e) => setSeatTypeFormData((prev) => ({ ...prev, phu_phi: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              <div className="form-actions">
+                <button type="submit" className="submit-button">
+                  {selectedSeatType ? "Cập nhật" : "Thêm mới"}
+                </button>
+                {selectedSeatType && (
+                  <button type="button" onClick={handleResetSeatTypeForm} className="cancel-button">
+                    Hủy
+                  </button>
+                )}
+              </div>
+            </form>
+          </>
+        ) : selectedRoomId === "" ? (
           <div className="empty-message-small">
             <p>Chọn rạp và phòng để chỉnh sửa ghế</p>
           </div>
@@ -564,7 +769,7 @@ const SeatManager = ({ apiBaseUrl, cinemas }: SeatManagerProps) => {
           </>
         ) : (
           <>
-            <h3 className="form-title">Chỉnh sửa ô ghế</h3>
+            <h3 className="form-title">Thông tin ô ghế</h3>
             {!selectedPreviewKey || !selectedPreviewSeat ? (
               <div className="empty-message-small">
                 <p>Click một ô trong sơ đồ để chỉnh sửa</p>

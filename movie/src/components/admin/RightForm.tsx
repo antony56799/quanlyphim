@@ -1,14 +1,15 @@
 import React from "react";
-import type { AdminMovie, Genre, Cinema, Room, RoomType } from "../../types/admin";
+import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime } from "../../types/admin";
 
 interface RightFormProps {
-  activeSubTab: "movies" | "genres" | "rooms";
+  activeSubTab: "movies" | "genres" | "rooms" | "showtimes";
   activeRoomTab: "cinemas" | "rooms" | "roomTypes";
   selectedMovie: AdminMovie | null;
   selectedGenre: Genre | null;
   selectedCinema: Cinema | null;
   selectedRoom: Room | null;
   selectedRoomType: RoomType | null;
+  selectedShowtime: Showtime | null;
   formData: {
     ten_phim: string;
     mo_ta: string;
@@ -26,6 +27,17 @@ interface RightFormProps {
   roomTypeFormData: { ten_loai: string; gia: number };
   genreOptions: Genre[];
   roomTypes: RoomType[];
+  movies: AdminMovie[];
+  cinemas: Cinema[];
+  rooms: Room[];
+  showtimeFormData: {
+    id_phim: number;
+    id_rap: number;
+    id_pc: number;
+    id_gia: number;
+    gio_bat_dau: string;
+    gio_ket_thuc: string;
+  };
   onFormChange: (field: string, value: string | number | string[]) => void;
   onGenreFormChange: (field: string, value: string) => void;
   onCinemaFormChange: (field: string, value: string | boolean) => void;
@@ -42,9 +54,13 @@ interface RightFormProps {
   onResetRoomForm: () => void;
   onResetRoomTypeForm: () => void;
   loadGenres: () => void;
+  onShowtimeFormChange: (field: string, value: string | number) => void;
+  onShowtimeSubmit: (e: React.FormEvent) => void;
+  onResetShowtimeForm: () => void;
 }
 
-const RightForm: React.FC<RightFormProps> = ({
+export const RightForm: React.FC<RightFormProps> = ({
+
   activeSubTab,
   activeRoomTab,
   selectedMovie,
@@ -75,7 +91,120 @@ const RightForm: React.FC<RightFormProps> = ({
   onResetRoomForm,
   onResetRoomTypeForm,
   loadGenres,
+  selectedShowtime,
+  movies,
+  cinemas,
+  rooms,
+  showtimeFormData,
+  onShowtimeFormChange,
+  onShowtimeSubmit,
+  onResetShowtimeForm,
 }) => {
+  if (activeSubTab === "showtimes") {
+    const roomsForCinema = rooms.filter((r) => r.id_rap === showtimeFormData.id_rap);
+
+    return (
+      <aside className="right-form-aside">
+        <h3 className="form-title">{selectedShowtime ? "Chỉnh sửa suất chiếu" : "Thêm suất chiếu"}</h3>
+        <form onSubmit={onShowtimeSubmit} className="admin-form">
+          <div className="form-group">
+            <label>Phim</label>
+            <select
+              value={showtimeFormData.id_phim || ""}
+              onChange={(e) => onShowtimeFormChange("id_phim", parseInt(e.target.value))}
+              required
+            >
+              <option value="">Chọn phim</option>
+              {movies.map((m) => (
+                <option key={m.id_phim} value={m.id_phim}>
+                  {m.ten_phim}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Rạp</label>
+            <select
+              value={showtimeFormData.id_rap || ""}
+              onChange={(e) => {
+                const idRap = parseInt(e.target.value);
+                onShowtimeFormChange("id_rap", idRap);
+                onShowtimeFormChange("id_pc", 0);
+              }}
+              required
+            >
+              <option value="">Chọn rạp</option>
+              {cinemas.map((c) => (
+                <option key={c.id_rap} value={c.id_rap}>
+                  {c.diachi || `Rạp ${c.id_rap}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Phòng chiếu</label>
+            <select
+              value={showtimeFormData.id_pc || ""}
+              onChange={(e) => onShowtimeFormChange("id_pc", parseInt(e.target.value))}
+              required
+              disabled={!showtimeFormData.id_rap}
+            >
+              <option value="">Chọn phòng</option>
+              {roomsForCinema.map((r) => (
+                <option key={r.id_pc} value={r.id_pc}>
+                  {r.ten_phong || `Phòng ${r.id_pc}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Giờ bắt đầu</label>
+              <input
+                type="datetime-local"
+                value={showtimeFormData.gio_bat_dau}
+                onChange={(e) => onShowtimeFormChange("gio_bat_dau", e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Giờ kết thúc</label>
+              <input
+                type="datetime-local"
+                value={showtimeFormData.gio_ket_thuc}
+                onChange={(e) => onShowtimeFormChange("gio_ket_thuc", e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>ID bảng giá</label>
+            <input
+              type="number"
+              min="1"
+              value={showtimeFormData.id_gia || ""}
+              onChange={(e) => onShowtimeFormChange("id_gia", parseInt(e.target.value))}
+              required
+            />
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="submit-button">
+              {selectedShowtime ? "Cập nhật" : "Thêm mới"}
+            </button>
+            {selectedShowtime && (
+              <button type="button" onClick={onResetShowtimeForm} className="cancel-button">Hủy</button>
+            )}
+          </div>
+        </form>
+      </aside>
+    );
+  }
+
   if (activeSubTab === "movies") {
     return (
       <aside className="right-form-aside">
@@ -372,5 +501,4 @@ const RightForm: React.FC<RightFormProps> = ({
     </aside>
   );
 };
-
 export default RightForm;
