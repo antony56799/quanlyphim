@@ -30,7 +30,7 @@ const CinemaList: React.FC<CinemaListProps> = ({ cinemas, selectedCinema, onEdit
                 Rạp {cinema.id_rap}
               </div>
               <div className="item-subtitle">
-                {cinema.diachi} | ĐT: {cinema.sdt_rap} | {cinema.trang_thai}
+                {cinema.diachi} | ĐT: {cinema.sdt_rap} | {cinema.trang_thai ? "Hoạt động" : "Đóng cửa"}
               </div>
             </div>
             <button

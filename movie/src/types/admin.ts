@@ -29,7 +29,7 @@ export interface Cinema {
   id_rap: number;
   diachi: string;
   sdt_rap: string;
-  trang_thai: string;
+  trang_thai: boolean;
 }
 
 export interface Room {
@@ -37,7 +37,7 @@ export interface Room {
   id_rap: number;
   id_loai: number;
   ten_phong: string;
-  trang_thai: string;
+  trang_thai: boolean;
   suc_chua: number;
   ten_loai?: string;
   ten_rap?: string;

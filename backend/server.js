@@ -23,6 +23,22 @@ function buildPosterUrl(req, posterUrl) {
   return `${req.protocol}://${req.get("host")}/uploads/${normalizedPosterUrl}`;
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "off"].includes(normalized)) return false;
+  }
+  return undefined;
+}
+
+function parseBooleanWithDefault(value, defaultValue) {
+  const parsed = parseBoolean(value);
+  return parsed === undefined ? defaultValue : parsed;
+}
+
 app.get("/", (_req, res) => {
   res.json({
     message: "Backend is running",
@@ -478,7 +494,7 @@ app.post("/api/admin/rap", async (req, res) => {
       `INSERT INTO rap (diachi, sdt_rap, trang_thai)
        VALUES ($1, $2, $3)
        RETURNING id_rap, diachi, sdt_rap, trang_thai`,
-      [diachi, sdt_rap, trang_thai || "Hoạt động"]
+      [diachi, sdt_rap, parseBooleanWithDefault(trang_thai, true)]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -491,6 +507,7 @@ app.put("/api/admin/rap/:id", async (req, res) => {
   const { id } = req.params;
   const { diachi, sdt_rap, trang_thai } = req.body;
   try {
+    const parsedTrangThai = parseBoolean(trang_thai);
     const result = await pool.query(
       `UPDATE rap
        SET diachi = COALESCE($1, diachi),
@@ -498,7 +515,7 @@ app.put("/api/admin/rap/:id", async (req, res) => {
            trang_thai = COALESCE($3, trang_thai)
        WHERE id_rap = $4
        RETURNING id_rap, diachi, sdt_rap, trang_thai`,
-      [diachi, sdt_rap, trang_thai, id]
+      [diachi, sdt_rap, parsedTrangThai, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Rạp không tồn tại" });
@@ -534,6 +551,96 @@ app.delete("/api/admin/rap/:id", async (req, res) => {
     res.json({ message: "Xóa rạp thành công" });
   } catch (error) {
     console.error("DELETE /api/admin/rap/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/loaiphong", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id_loai,
+        ten_loai,
+        COALESCE(phu_phi, 0)::float8 AS gia
+      FROM loai_phong
+      ORDER BY id_loai
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/loaiphong error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/loaiphong", async (req, res) => {
+  const { ten_loai, gia } = req.body;
+  try {
+    if (!ten_loai) {
+      return res.status(400).json({ error: "Thiếu thông tin: ten_loai là bắt buộc" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO loai_phong (ten_loai, phu_phi)
+       VALUES ($1, $2)
+       RETURNING id_loai, ten_loai, COALESCE(phu_phi, 0)::float8 AS gia`,
+      [ten_loai, gia ?? 0]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/loaiphong error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/loaiphong/:id", async (req, res) => {
+  const { id } = req.params;
+  const { ten_loai, gia } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE loai_phong
+       SET ten_loai = COALESCE($1, ten_loai),
+           phu_phi = COALESCE($2, phu_phi)
+       WHERE id_loai = $3
+       RETURNING id_loai, ten_loai, COALESCE(phu_phi, 0)::float8 AS gia`,
+      [ten_loai, gia, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Loại phòng không tồn tại" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/loaiphong/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/loaiphong/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM phong_chieu WHERE id_loai = $1`,
+      [id]
+    );
+
+    if (checkResult.rows[0].count > 0) {
+      return res.status(400).json({ error: "Không thể xóa loại phòng vì còn phòng chiếu liên kết" });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM loai_phong WHERE id_loai = $1 RETURNING id_loai`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Loại phòng không tồn tại" });
+    }
+
+    res.json({ message: "Xóa loại phòng thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/loaiphong/:id error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -582,7 +689,7 @@ app.post("/api/admin/phong-chieu", async (req, res) => {
       `INSERT INTO phong_chieu (id_rap, id_loai, ten_phong, trang_thai, suc_chua)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id_pc, id_rap, id_loai, ten_phong, trang_thai, suc_chua`,
-      [id_rap, id_loai || 1, ten_phong, trang_thai || "Sẵn sàng", suc_chua || 100]
+      [id_rap, id_loai || 1, ten_phong, parseBooleanWithDefault(trang_thai, true), suc_chua || 100]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -595,6 +702,7 @@ app.put("/api/admin/phong-chieu/:id", async (req, res) => {
   const { id } = req.params;
   const { id_rap, id_loai, ten_phong, trang_thai, suc_chua } = req.body;
   try {
+    const parsedTrangThai = parseBoolean(trang_thai);
     const result = await pool.query(
       `UPDATE phong_chieu
        SET id_rap = COALESCE($1, id_rap),
@@ -604,7 +712,7 @@ app.put("/api/admin/phong-chieu/:id", async (req, res) => {
            suc_chua = COALESCE($5, suc_chua)
        WHERE id_pc = $6
        RETURNING id_pc, id_rap, id_loai, ten_phong, trang_thai, suc_chua`,
-      [id_rap, id_loai, ten_phong, trang_thai, suc_chua, id]
+      [id_rap, id_loai, ten_phong, parsedTrangThai, suc_chua, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Phòng chiếu không tồn tại" });

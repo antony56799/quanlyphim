@@ -70,7 +70,7 @@ const RoomTable: React.FC<RoomTableProps> = ({
                 <td>{cinema?.diachi || `Rạp ${room.id_rap}`}</td>
                 <td>{room.ten_loai || roomType?.ten_loai || "N/A"}</td>
                 <td>{room.suc_chua}</td>
-                <td>{room.trang_thai}</td>
+                <td>{room.trang_thai ? "Sẵn sàng" : "Bảo trì"}</td>
                 <td className="text-right">
                   <button
                     onClick={(e) => {

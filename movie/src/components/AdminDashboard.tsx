@@ -53,13 +53,13 @@ const AdminDashboard = () => {
   const [cinemaFormData, setCinemaFormData] = useState({
     diachi: "",
     sdt_rap: "",
-    trang_thai: "Hoạt động"
+    trang_thai: true
   });
 
   const [roomFormData, setRoomFormData] = useState({
     ten_phong: "",
     suc_chua: 100,
-    trang_thai: "Sẵn sàng",
+    trang_thai: true,
     id_loai: 0
   });
 
@@ -356,13 +356,13 @@ const AdminDashboard = () => {
 
   const handleResetCinemaForm = () => {
     setSelectedCinema(null);
-    setCinemaFormData({ diachi: "", sdt_rap: "", trang_thai: "Hoạt động" });
+    setCinemaFormData({ diachi: "", sdt_rap: "", trang_thai: true });
     setRooms([]);
   };
 
   const handleResetRoomForm = () => {
     setSelectedRoom(null);
-    setRoomFormData({ ten_phong: "", suc_chua: 100, trang_thai: "Sẵn sàng", id_loai: roomTypes[0]?.id_loai || 0 });
+    setRoomFormData({ ten_phong: "", suc_chua: 100, trang_thai: true, id_loai: roomTypes[0]?.id_loai || 0 });
   };
 
   const handleResetRoomTypeForm = () => {
@@ -416,6 +416,11 @@ const AdminDashboard = () => {
 
   const handleEditRoom = (room: Room) => {
     setSelectedRoom(room);
+    const cinema = cinemas.find((c) => c.id_rap === room.id_rap) || null;
+    if (cinema) {
+      setSelectedCinema(cinema);
+      setSelectedCinemaIdForFilter(cinema.id_rap);
+    }
     setRoomFormData({
       ten_phong: room.ten_phong,
       suc_chua: room.suc_chua,

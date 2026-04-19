@@ -21,15 +21,15 @@ interface RightFormProps {
     actors: string[];
   };
   genreFormData: { ten_the_loai: string };
-  cinemaFormData: { diachi: string; sdt_rap: string; trang_thai: string };
-  roomFormData: { ten_phong: string; suc_chua: number; trang_thai: string; id_loai: number };
+  cinemaFormData: { diachi: string; sdt_rap: string; trang_thai: boolean };
+  roomFormData: { ten_phong: string; suc_chua: number; trang_thai: boolean; id_loai: number };
   roomTypeFormData: { ten_loai: string; gia: number };
   genreOptions: Genre[];
   roomTypes: RoomType[];
   onFormChange: (field: string, value: string | number | string[]) => void;
   onGenreFormChange: (field: string, value: string) => void;
-  onCinemaFormChange: (field: string, value: string) => void;
-  onRoomFormChange: (field: string, value: string | number) => void;
+  onCinemaFormChange: (field: string, value: string | boolean) => void;
+  onRoomFormChange: (field: string, value: string | number | boolean) => void;
   onRoomTypeFormChange: (field: string, value: string | number) => void;
   onSubmit: (e: React.FormEvent) => void;
   onGenreSubmit: (e: React.FormEvent) => void;
@@ -254,12 +254,11 @@ const RightForm: React.FC<RightFormProps> = ({
             <div className="form-group">
               <label>Trạng thái</label>
               <select
-                value={cinemaFormData.trang_thai}
-                onChange={(e) => onCinemaFormChange("trang_thai", e.target.value)}
+                value={cinemaFormData.trang_thai ? "true" : "false"}
+                onChange={(e) => onCinemaFormChange("trang_thai", e.target.value === "true")}
               >
-                <option value="Hoạt động">Hoạt động</option>
-                <option value="Bảo trì">Bảo trì</option>
-                <option value="Đóng cửa">Đóng cửa</option>
+                <option value="true">Hoạt động</option>
+                <option value="false">Đóng cửa</option>
               </select>
             </div>
             <div className="form-actions">
@@ -315,12 +314,11 @@ const RightForm: React.FC<RightFormProps> = ({
                   <div className="form-group">
                     <label>Trạng thái</label>
                     <select
-                      value={roomFormData.trang_thai}
-                      onChange={(e) => onRoomFormChange("trang_thai", e.target.value)}
+                      value={roomFormData.trang_thai ? "true" : "false"}
+                      onChange={(e) => onRoomFormChange("trang_thai", e.target.value === "true")}
                     >
-                      <option value="Sẵn sàng">Sẵn sàng</option>
-                      <option value="Bảo trì">Bảo trì</option>
-                      <option value="Không sử dụng">Không sử dụng</option>
+                      <option value="true">Sẵn sàng</option>
+                      <option value="false">Bảo trì</option>
                     </select>
                   </div>
                 </div>
