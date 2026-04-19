@@ -10,13 +10,14 @@ import CinemaList from "./admin/CinemaList";
 import RoomTable from "./admin/RoomTable";
 import RoomTypeTable from "./admin/RoomTypeTable";
 import RightForm from "./admin/RightForm";
+import SeatManager from "./admin/SeatManager";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const AdminDashboard = () => {
   // --- States ---
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats">("movies");
   const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms" | "roomTypes">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -444,103 +445,109 @@ const AdminDashboard = () => {
           onResetForms={handleResetAllForms}
         />
 
-        <section className="admin-content">
-          <TopTabs
-            activeSubTab={activeSubTab}
-            activeRoomTab={activeRoomTab}
-            onSubTabChange={setActiveSubTab}
-            onRoomTabChange={setActiveRoomTab}
-            onResetGenreForm={handleResetGenreForm}
-            onResetCinemaForm={handleResetCinemaForm}
-            onResetForm={handleResetForm}
-            onResetRoomForm={handleResetRoomForm}
-            onResetRoomTypeForm={handleResetRoomTypeForm}
-          />
+        {activeSubTab === "seats" ? (
+          <SeatManager apiBaseUrl={API_BASE_URL} cinemas={cinemas} />
+        ) : (
+          <>
+            <section className="admin-content">
+              <TopTabs
+                activeSubTab={activeSubTab}
+                activeRoomTab={activeRoomTab}
+                onSubTabChange={setActiveSubTab}
+                onRoomTabChange={setActiveRoomTab}
+                onResetGenreForm={handleResetGenreForm}
+                onResetCinemaForm={handleResetCinemaForm}
+                onResetForm={handleResetForm}
+                onResetRoomForm={handleResetRoomForm}
+                onResetRoomTypeForm={handleResetRoomTypeForm}
+              />
 
-          {isLoading ? (
-            <div className="loading-text">Đang tải...</div>
-          ) : (
-            <>
-              {activeSubTab === "movies" && (
-                <MovieTable
-                  movies={movies}
-                  onEditClick={handleEditMovie}
-                  onUpdateStatus={handleUpdateStatus}
-                />
-              )}
-              {activeSubTab === "genres" && (
-                <GenreTable
-                  genreOptions={genreOptions}
-                  onEditGenreClick={handleEditGenre}
-                  onDeleteGenre={handleDeleteGenre}
-                />
-              )}
-              {activeSubTab === "rooms" && (
+              {isLoading ? (
+                <div className="loading-text">Đang tải...</div>
+              ) : (
                 <>
-                  {activeRoomTab === "cinemas" && (
-                    <CinemaList
-                      cinemas={cinemas}
-                      selectedCinema={selectedCinema}
-                      onEditCinemaClick={handleEditCinema}
-                      onDeleteCinema={handleDeleteCinema}
+                  {activeSubTab === "movies" && (
+                    <MovieTable
+                      movies={movies}
+                      onEditClick={handleEditMovie}
+                      onUpdateStatus={handleUpdateStatus}
                     />
                   )}
-                  {activeRoomTab === "rooms" && (
-                    <RoomTable
-                      rooms={rooms}
-                      cinemas={cinemas}
-                      roomTypes={roomTypes}
-                      selectedCinemaId={selectedCinemaIdForFilter}
-                      onCinemaChange={setSelectedCinemaIdForFilter}
-                      onEditRoomClick={handleEditRoom}
-                      onDeleteRoom={handleDeleteRoom}
+                  {activeSubTab === "genres" && (
+                    <GenreTable
+                      genreOptions={genreOptions}
+                      onEditGenreClick={handleEditGenre}
+                      onDeleteGenre={handleDeleteGenre}
                     />
                   )}
-                  {activeRoomTab === "roomTypes" && (
-                    <RoomTypeTable
-                      roomTypes={roomTypes}
-                      onEditRoomTypeClick={handleEditRoomType}
-                      onDeleteRoomType={handleDeleteRoomType}
-                    />
+                  {activeSubTab === "rooms" && (
+                    <>
+                      {activeRoomTab === "cinemas" && (
+                        <CinemaList
+                          cinemas={cinemas}
+                          selectedCinema={selectedCinema}
+                          onEditCinemaClick={handleEditCinema}
+                          onDeleteCinema={handleDeleteCinema}
+                        />
+                      )}
+                      {activeRoomTab === "rooms" && (
+                        <RoomTable
+                          rooms={rooms}
+                          cinemas={cinemas}
+                          roomTypes={roomTypes}
+                          selectedCinemaId={selectedCinemaIdForFilter}
+                          onCinemaChange={setSelectedCinemaIdForFilter}
+                          onEditRoomClick={handleEditRoom}
+                          onDeleteRoom={handleDeleteRoom}
+                        />
+                      )}
+                      {activeRoomTab === "roomTypes" && (
+                        <RoomTypeTable
+                          roomTypes={roomTypes}
+                          onEditRoomTypeClick={handleEditRoomType}
+                          onDeleteRoomType={handleDeleteRoomType}
+                        />
+                      )}
+                    </>
                   )}
                 </>
               )}
-            </>
-          )}
-        </section>
+            </section>
 
-        <RightForm
-          activeSubTab={activeSubTab}
-          activeRoomTab={activeRoomTab}
-          selectedMovie={selectedMovie}
-          selectedGenre={selectedGenre}
-          selectedCinema={selectedCinema}
-          selectedRoom={selectedRoom}
-          selectedRoomType={selectedRoomType}
-          formData={formData}
-          genreFormData={genreFormData}
-          cinemaFormData={cinemaFormData}
-          roomFormData={roomFormData}
-          roomTypeFormData={roomTypeFormData}
-          genreOptions={genreOptions}
-          roomTypes={roomTypes}
-          onFormChange={(field, val) => setFormData({ ...formData, [field]: val })}
-          onGenreFormChange={(field, val) => setGenreFormData({ ...genreFormData, [field]: val })}
-          onCinemaFormChange={(field, val) => setCinemaFormData({ ...cinemaFormData, [field]: val })}
-          onRoomFormChange={(field, val) => setRoomFormData({ ...roomFormData, [field]: val })}
-          onRoomTypeFormChange={(field, val) => setRoomTypeFormData({ ...roomTypeFormData, [field]: val })}
-          onSubmit={handleSubmit}
-          onGenreSubmit={handleGenreSubmit}
-          onCinemaSubmit={handleSubmitCinema}
-          onRoomSubmit={handleSubmitRoom}
-          onRoomTypeSubmit={handleSubmitRoomType}
-          onResetForm={handleResetForm}
-          onResetGenreForm={handleResetGenreForm}
-          onResetCinemaForm={handleResetCinemaForm}
-          onResetRoomForm={handleResetRoomForm}
-          onResetRoomTypeForm={handleResetRoomTypeForm}
-          loadGenres={loadGenres}
-        />
+            <RightForm
+              activeSubTab={activeSubTab}
+              activeRoomTab={activeRoomTab}
+              selectedMovie={selectedMovie}
+              selectedGenre={selectedGenre}
+              selectedCinema={selectedCinema}
+              selectedRoom={selectedRoom}
+              selectedRoomType={selectedRoomType}
+              formData={formData}
+              genreFormData={genreFormData}
+              cinemaFormData={cinemaFormData}
+              roomFormData={roomFormData}
+              roomTypeFormData={roomTypeFormData}
+              genreOptions={genreOptions}
+              roomTypes={roomTypes}
+              onFormChange={(field, val) => setFormData({ ...formData, [field]: val })}
+              onGenreFormChange={(field, val) => setGenreFormData({ ...genreFormData, [field]: val })}
+              onCinemaFormChange={(field, val) => setCinemaFormData({ ...cinemaFormData, [field]: val })}
+              onRoomFormChange={(field, val) => setRoomFormData({ ...roomFormData, [field]: val })}
+              onRoomTypeFormChange={(field, val) => setRoomTypeFormData({ ...roomTypeFormData, [field]: val })}
+              onSubmit={handleSubmit}
+              onGenreSubmit={handleGenreSubmit}
+              onCinemaSubmit={handleSubmitCinema}
+              onRoomSubmit={handleSubmitRoom}
+              onRoomTypeSubmit={handleSubmitRoomType}
+              onResetForm={handleResetForm}
+              onResetGenreForm={handleResetGenreForm}
+              onResetCinemaForm={handleResetCinemaForm}
+              onResetRoomForm={handleResetRoomForm}
+              onResetRoomTypeForm={handleResetRoomTypeForm}
+              loadGenres={loadGenres}
+            />
+          </>
+        )}
       </main>
     </Background>
   );

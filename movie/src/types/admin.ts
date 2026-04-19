@@ -48,3 +48,19 @@ export interface RoomType {
   ten_loai: string;
   gia: number;
 }
+
+export interface SeatType {
+  id_loaighe: number;
+  ten_loaighe: string;
+  phu_phi: number;
+}
+
+export interface Seat {
+  id_ghe: number;
+  hang: string;
+  so: number;
+  tinhtrang: boolean;
+  id_loaighe: number | null;
+  ten_loaighe?: string | null;
+  phu_phi?: number | null;
+}

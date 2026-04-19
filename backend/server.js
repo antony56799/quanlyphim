@@ -645,6 +645,345 @@ app.delete("/api/admin/loaiphong/:id", async (req, res) => {
   }
 });
 
+app.get("/api/admin/loaighe", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id_loaighe,
+        ten_loaighe,
+        COALESCE(phu_phi, 0)::float8 AS phu_phi
+      FROM loai_ghe
+      ORDER BY id_loaighe
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/loaighe error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/loaighe", async (req, res) => {
+  const { ten_loaighe, phu_phi } = req.body;
+  try {
+    if (!ten_loaighe) {
+      return res.status(400).json({ error: "Thiếu thông tin: ten_loaighe là bắt buộc" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO loai_ghe (ten_loaighe, phu_phi)
+       VALUES ($1, $2)
+       RETURNING id_loaighe, ten_loaighe, COALESCE(phu_phi, 0)::float8 AS phu_phi`,
+      [ten_loaighe, phu_phi ?? 0]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/loaighe error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/loaighe/:id", async (req, res) => {
+  const { id } = req.params;
+  const { ten_loaighe, phu_phi } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE loai_ghe
+       SET ten_loaighe = COALESCE($1, ten_loaighe),
+           phu_phi = COALESCE($2, phu_phi)
+       WHERE id_loaighe = $3
+       RETURNING id_loaighe, ten_loaighe, COALESCE(phu_phi, 0)::float8 AS phu_phi`,
+      [ten_loaighe, phu_phi, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Loại ghế không tồn tại" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/loaighe/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/loaighe/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM ghe WHERE id_loaighe = $1`,
+      [id]
+    );
+
+    if (checkResult.rows[0].count > 0) {
+      return res.status(400).json({ error: "Không thể xóa loại ghế vì còn ghế liên kết" });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM loai_ghe WHERE id_loaighe = $1 RETURNING id_loaighe`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Loại ghế không tồn tại" });
+    }
+
+    res.json({ message: "Xóa loại ghế thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/loaighe/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/ghe", async (req, res) => {
+  const { id_pc } = req.query;
+  try {
+    if (!id_pc) {
+      return res.status(400).json({ error: "Thiếu tham số: id_pc" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        g.id_ghe,
+        g.hang,
+        g.so,
+        g.tinhtrang,
+        g.id_loaighe,
+        lg.ten_loaighe,
+        COALESCE(lg.phu_phi, 0)::float8 AS phu_phi
+      FROM ghe g
+      LEFT JOIN loai_ghe lg ON g.id_loaighe = lg.id_loaighe
+      WHERE g.id_pc = $1
+      ORDER BY g.hang, g.so
+      `,
+      [id_pc]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/ghe error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/ghe", async (req, res) => {
+  const { id_pc, hang, so, id_loaighe, tinhtrang } = req.body;
+  try {
+    if (!id_pc || !hang || so === undefined || so === null) {
+      return res.status(400).json({ error: "Thiếu thông tin: id_pc, hang, so là bắt buộc" });
+    }
+
+    const normalizedHang = String(hang).trim().toUpperCase();
+    const normalizedSo = Number(so);
+
+    const exists = await pool.query(
+      `SELECT 1 FROM ghe WHERE id_pc = $1 AND UPPER(TRIM(hang)) = $2 AND so = $3 LIMIT 1`,
+      [id_pc, normalizedHang, normalizedSo]
+    );
+    if (exists.rows.length > 0) {
+      return res.status(409).json({ error: "Ghế đã tồn tại trong phòng (hang, so)" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO ghe (hang, so, tinhtrang, id_loaighe, id_pc)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id_ghe, hang, so, tinhtrang, id_loaighe, id_pc`,
+      [normalizedHang, normalizedSo, parseBooleanWithDefault(tinhtrang, true), id_loaighe ?? null, id_pc]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/ghe error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/ghe/:id", async (req, res) => {
+  const { id } = req.params;
+  const { hang, so, id_loaighe, tinhtrang } = req.body;
+  try {
+    const currentRes = await pool.query(`SELECT id_pc, hang, so FROM ghe WHERE id_ghe = $1`, [id]);
+    if (currentRes.rows.length === 0) {
+      return res.status(404).json({ error: "Ghế không tồn tại" });
+    }
+
+    const { id_pc } = currentRes.rows[0];
+    const nextHang = hang !== undefined ? String(hang).trim().toUpperCase() : undefined;
+    const nextSo = so !== undefined ? Number(so) : undefined;
+
+    if (nextHang !== undefined || nextSo !== undefined) {
+      const checkHang = nextHang ?? String(currentRes.rows[0].hang).trim().toUpperCase();
+      const checkSo = nextSo ?? Number(currentRes.rows[0].so);
+      const exists = await pool.query(
+        `SELECT 1 FROM ghe WHERE id_pc = $1 AND UPPER(TRIM(hang)) = $2 AND so = $3 AND id_ghe <> $4 LIMIT 1`,
+        [id_pc, checkHang, checkSo, id]
+      );
+      if (exists.rows.length > 0) {
+        return res.status(409).json({ error: "Ghế đã tồn tại trong phòng (hang, so)" });
+      }
+    }
+
+    const parsedTinhTrang = parseBoolean(tinhtrang);
+    const result = await pool.query(
+      `UPDATE ghe
+       SET hang = COALESCE($1, hang),
+           so = COALESCE($2, so),
+           tinhtrang = COALESCE($3, tinhtrang),
+           id_loaighe = COALESCE($4, id_loaighe)
+       WHERE id_ghe = $5
+       RETURNING id_ghe, hang, so, tinhtrang, id_loaighe, id_pc`,
+      [nextHang, nextSo, parsedTinhTrang, id_loaighe, id]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/ghe/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/ghe/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(`DELETE FROM ghe WHERE id_ghe = $1 RETURNING id_ghe`, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Ghế không tồn tại" });
+    }
+    res.json({ message: "Xóa ghế thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/ghe/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/ghe/bulk-save", async (req, res) => {
+  const { id_pc, seats } = req.body;
+  if (!id_pc || !Array.isArray(seats)) {
+    return res.status(400).json({ error: "Thiếu thông tin: id_pc và seats[] là bắt buộc" });
+  }
+
+  const normalized = [];
+  const keySet = new Set();
+  for (const item of seats) {
+    const hang = String(item.hang ?? "").trim().toUpperCase();
+    const so = Number(item.so);
+    if (!hang || Number.isNaN(so)) {
+      return res.status(400).json({ error: "Dữ liệu ghế không hợp lệ (hang, so)" });
+    }
+    const key = `${hang}|${so}`;
+    if (keySet.has(key)) {
+      return res.status(400).json({ error: "Danh sách ghế bị trùng (hang, so)" });
+    }
+    keySet.add(key);
+    normalized.push({
+      hang,
+      so,
+      id_loaighe: item.id_loaighe ?? null,
+      tinhtrang: parseBooleanWithDefault(item.tinhtrang, true),
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const existingRes = await client.query(
+      `SELECT id_ghe, hang, so, id_loaighe, tinhtrang FROM ghe WHERE id_pc = $1`,
+      [id_pc]
+    );
+
+    const existingByKey = new Map();
+    for (const row of existingRes.rows) {
+      const key = `${String(row.hang).trim().toUpperCase()}|${Number(row.so)}`;
+      existingByKey.set(key, row);
+    }
+
+    const desiredByKey = new Map();
+    for (const s of normalized) {
+      desiredByKey.set(`${s.hang}|${s.so}`, s);
+    }
+
+    const toDeleteIds = [];
+    const toUpdate = [];
+    const toInsert = [];
+
+    for (const [key, row] of existingByKey.entries()) {
+      const desired = desiredByKey.get(key);
+      if (!desired) {
+        toDeleteIds.push(row.id_ghe);
+        continue;
+      }
+      const nextLoai = desired.id_loaighe ?? null;
+      const nextTinhTrang = desired.tinhtrang;
+      if ((row.id_loaighe ?? null) !== nextLoai || row.tinhtrang !== nextTinhTrang) {
+        toUpdate.push({ id_ghe: row.id_ghe, id_loaighe: nextLoai, tinhtrang: nextTinhTrang });
+      }
+    }
+
+    for (const [key, desired] of desiredByKey.entries()) {
+      if (!existingByKey.has(key)) {
+        toInsert.push(desired);
+      }
+    }
+
+    if (toDeleteIds.length > 0) {
+      await client.query(`DELETE FROM ghe WHERE id_ghe = ANY($1::int[])`, [toDeleteIds]);
+    }
+
+    if (toUpdate.length > 0) {
+      const values = [];
+      const params = [];
+      let idx = 1;
+      for (const u of toUpdate) {
+        values.push(`($${idx++}::int, $${idx++}::int, $${idx++}::boolean)`);
+        params.push(u.id_ghe, u.id_loaighe, u.tinhtrang);
+      }
+      await client.query(
+        `
+        WITH updates(id_ghe, id_loaighe, tinhtrang) AS (
+          VALUES ${values.join(", ")}
+        )
+        UPDATE ghe g
+        SET id_loaighe = u.id_loaighe,
+            tinhtrang = u.tinhtrang
+        FROM updates u
+        WHERE g.id_ghe = u.id_ghe
+        `,
+        params
+      );
+    }
+
+    if (toInsert.length > 0) {
+      const values = [];
+      const params = [];
+      let idx = 1;
+      for (const s of toInsert) {
+        values.push(`($${idx++}::varchar, $${idx++}::int, $${idx++}::boolean, $${idx++}::int, $${idx++}::int)`);
+        params.push(s.hang, s.so, s.tinhtrang, s.id_loaighe, id_pc);
+      }
+      await client.query(
+        `
+        INSERT INTO ghe (hang, so, tinhtrang, id_loaighe, id_pc)
+        VALUES ${values.join(", ")}
+        `,
+        params
+      );
+    }
+
+    await client.query("COMMIT");
+    res.json({
+      deleted: toDeleteIds.length,
+      updated: toUpdate.length,
+      inserted: toInsert.length,
+      total: normalized.length,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("POST /api/admin/ghe/bulk-save error:", error.message);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ===== PHONG CHIEU (Room) Management =====
 app.get("/api/admin/phong-chieu", async (req, res) => {
   try {
