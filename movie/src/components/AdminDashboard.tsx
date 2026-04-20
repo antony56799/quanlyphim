@@ -609,14 +609,21 @@ const AdminDashboard = () => {
   }, [activeSubTab, showtimeFilterCinemaId, showtimeFilterRoomId]);
 
   const handleEditShowtime = (st: Showtime) => {
+    const toDateTimeLocal = (raw: string) => {
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return "";
+      const pad2 = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    };
+
     setSelectedShowtime(st);
     setShowtimeFormData({
       id_phim: st.id_phim,
       id_rap: st.id_rap,
       id_pc: st.id_pc,
       id_gia: st.id_gia,
-      gio_bat_dau: st.gio_bat_dau.slice(0, 16),
-      gio_ket_thuc: st.gio_ket_thuc.slice(0, 16),
+      gio_bat_dau: toDateTimeLocal(st.gio_bat_dau),
+      gio_ket_thuc: toDateTimeLocal(st.gio_ket_thuc),
     });
   };
 
@@ -892,24 +899,64 @@ const AdminDashboard = () => {
                     if (to && d > to) return false;
                     return true;
                   };
-
+                  
                   const pickPrice = (start: Date) => {
-                    const day = start.getDay();
-                    const computedLoaiNgay = day === 0 || day === 6 ? "LE" : "THUONG";
+                    const normalizeLoaiNgay = (v?: string | null) => (v || "THUONG").trim().toUpperCase();
                     const dateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+                    const day = start.getDay();
+                    const loaiNgayCoBan = day === 0 || day === 6 ? "CUOI_TUAN" : "THUONG";
 
-                    const candidates = ticketPrices
-                      .filter((p) => (p.loai_ngay || "THUONG") === computedLoaiNgay)
-                      .filter((p) => isEffective(p, dateOnly));
+                    const isLateShow = (value: Date | string) => {
+                      const hours = (() => {
+                        if (value instanceof Date) return value.getHours();
 
-                    candidates.sort((a, b) => {
-                      const aFrom = parseDateOnly(a.hieu_luc_tu ?? null)?.getTime() ?? -1;
-                      const bFrom = parseDateOnly(b.hieu_luc_tu ?? null)?.getTime() ?? -1;
-                      if (aFrom !== bFrom) return bFrom - aFrom;
-                      return (b.id_gia || 0) - (a.id_gia || 0);
-                    });
+                        const raw = String(value).trim();
+                        const m = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+                        if (m) {
+                          const h12 = parseInt(m[1], 10);
+                          const period = m[3].toUpperCase();
+                          const base = h12 % 12;
+                          return period === "PM" ? base + 12 : base;
+                        }
 
-                    return candidates[0] || null;
+                        const d = new Date(raw);
+                        if (!Number.isNaN(d.getTime())) return d.getHours();
+
+                        return -1;
+                      })();
+
+                      if (hours < 0) return false;
+                      return hours >= 22 || hours < 6;
+                    };
+
+                    const pickByLoaiNgay = (allowed: string[]) => {
+                      const candidates = ticketPrices
+                        .filter((p) => allowed.includes(normalizeLoaiNgay(p.loai_ngay)))
+                        .filter((p) => isEffective(p, dateOnly));
+
+                      candidates.sort((a, b) => {
+                        const aFrom = parseDateOnly(a.hieu_luc_tu ?? null)?.getTime() ?? -1;
+                        const bFrom = parseDateOnly(b.hieu_luc_tu ?? null)?.getTime() ?? -1;
+                        if (aFrom !== bFrom) return bFrom - aFrom;
+                        return (b.id_gia || 0) - (a.id_gia || 0);
+                      });
+
+                      return candidates[0] || null;
+                    };
+
+                    const priority: string[][] = [
+                      ["TET", "LE"],
+                      isLateShow(start) ? ["SUAT_KHUYA", "KHUYEN_MAI"] : ["KHUYEN_MAI"],
+                      [loaiNgayCoBan],
+                      ["THUONG"],
+                    ];
+
+                    for (const group of priority) {
+                      const picked = pickByLoaiNgay(group);
+                      if (picked) return picked;
+                    }
+
+                    return null;
                   };
 
                   if (field === "gio_bat_dau" || field === "id_pc" || field === "id_rap") {

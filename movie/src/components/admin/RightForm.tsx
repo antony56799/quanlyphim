@@ -188,33 +188,6 @@ export const RightForm: React.FC<RightFormProps> = ({
       : null;
     const roomSurcharge = selectedRoomTypeForPrice?.gia ?? 0;
 
-    const parseDateOnly = (raw?: string | null) => {
-      if (!raw) return null;
-      const d = new Date(String(raw));
-      if (Number.isNaN(d.getTime())) return null;
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    };
-
-    const startForPrice = showtimeFormData.gio_bat_dau ? new Date(showtimeFormData.gio_bat_dau) : null;
-    const computedLoaiNgay = startForPrice && !Number.isNaN(startForPrice.getTime())
-      ? (startForPrice.getDay() === 0 || startForPrice.getDay() === 6 ? "LE" : "THUONG")
-      : null;
-
-    const isEffective = (price: BasePrice, d: Date) => {
-      const from = parseDateOnly(price.hieu_luc_tu ?? null);
-      const to = parseDateOnly(price.hieu_luc_den ?? null);
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    };
-
-    const effectivePrices = (() => {
-      if (!computedLoaiNgay || !startForPrice || Number.isNaN(startForPrice.getTime())) return ticketPrices;
-      const dateOnly = new Date(startForPrice.getFullYear(), startForPrice.getMonth(), startForPrice.getDate());
-      return ticketPrices
-        .filter((p) => (p.loai_ngay || "THUONG") === computedLoaiNgay)
-        .filter((p) => isEffective(p, dateOnly));
-    })();
 
     const selectedBasePrice = ticketPrices.find((p) => p.id_gia === showtimeFormData.id_gia) || null;
     const baseAmount = selectedBasePrice?.gia_tien ?? 0;
@@ -389,26 +362,6 @@ export const RightForm: React.FC<RightFormProps> = ({
             </>
           ) : null}
 
-          <div className="form-group">
-            <label>Giá cơ bản</label>
-            <select
-              value={showtimeFormData.id_gia || ""}
-              onChange={(e) => onShowtimeFormChange("id_gia", parseInt(e.target.value))}
-              required
-            >
-              <option value="">Chọn giá cơ bản</option>
-              {effectivePrices.map((p) => (
-                <option key={p.id_gia} value={p.id_gia}>
-                  {p.gia_tien.toLocaleString("vi-VN")} đ - {p.ten_bang_gia} ({p.loai_ngay || "THUONG"})
-                </option>
-              ))}
-            </select>
-            {computedLoaiNgay ? (
-              <div className="table-count" style={{ marginTop: "6px" }}>
-                Loại ngày theo giờ bắt đầu: {computedLoaiNgay}
-              </div>
-            ) : null}
-          </div>
 
           {showtimeFormData.id_pc && showtimeFormData.id_gia ? (
             <div className="form-group">

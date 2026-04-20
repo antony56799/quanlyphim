@@ -1288,15 +1288,57 @@ app.post("/api/admin/suat-chieu/bulk", async (req, res) => {
         SELECT
           s.start_ts,
           (s.start_ts + make_interval(mins => $6::int)) AS end_ts,
-          COALESCE($7::int,
+          COALESCE(
+            $7::int,
             (
-              SELECT bg.id_gia
-              FROM bang_gia_co_ban bg
-              WHERE bg.loai_ngay = (CASE WHEN EXTRACT(DOW FROM s.ngay) IN (0,6) THEN 'LE' ELSE 'THUONG' END)
-                AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
-                AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
-              ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
-              LIMIT 1
+              SELECT COALESCE(
+                (
+                  SELECT bg.id_gia
+                  FROM bang_gia_co_ban bg
+                  WHERE UPPER(TRIM(bg.loai_ngay)) IN ('TET', 'LE')
+                    AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                    AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+                  ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+                  LIMIT 1
+                ),
+                (
+                  SELECT bg.id_gia
+                  FROM bang_gia_co_ban bg
+                  WHERE UPPER(TRIM(bg.loai_ngay)) = 'SUAT_KHUYA'
+                    AND (EXTRACT(HOUR FROM s.start_ts) >= 22 OR EXTRACT(HOUR FROM s.start_ts) < 6)
+                    AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                    AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+                  ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+                  LIMIT 1
+                ),
+                (
+                  SELECT bg.id_gia
+                  FROM bang_gia_co_ban bg
+                  WHERE UPPER(TRIM(bg.loai_ngay)) = 'KHUYEN_MAI'
+                    AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                    AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+                  ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+                  LIMIT 1
+                ),
+                (
+                  SELECT bg.id_gia
+                  FROM bang_gia_co_ban bg
+                  WHERE UPPER(TRIM(bg.loai_ngay)) = (CASE WHEN EXTRACT(DOW FROM s.ngay) IN (0,6) THEN 'CUOI_TUAN' ELSE 'THUONG' END)
+                    AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                    AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+                  ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+                  LIMIT 1
+                ),
+                (
+                  SELECT bg.id_gia
+                  FROM bang_gia_co_ban bg
+                  WHERE UPPER(TRIM(bg.loai_ngay)) = 'THUONG'
+                    AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                    AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+                  ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+                  LIMIT 1
+                )
+              )
             )
           ) AS picked_id_gia
         FROM starts s

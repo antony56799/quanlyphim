@@ -100,16 +100,20 @@ const ShowTimeTable: React.FC<ShowTimeTableProps> = ({
                   const roomType = room ? roomTypes.find((t) => t.id_loai === room.id_loai) || null : null;
                   const roomSurcharge = roomType?.gia ?? 0;
 
+                  const normalizeLoaiNgay = (v?: string | null) => (v || "").trim().toUpperCase();
                   const start = new Date(st.gio_bat_dau);
-                  const computedLoaiNgay = !Number.isNaN(start.getTime())
-                    ? (start.getDay() === 0 || start.getDay() === 6 ? "LE" : "THUONG")
+                  const inferredLoaiNgay = !Number.isNaN(start.getTime())
+                    ? (start.getDay() === 0 || start.getDay() === 6 ? "CUOI_TUAN" : "THUONG")
                     : null;
+                  const loaiNgay = normalizeLoaiNgay(st.loai_ngay) || inferredLoaiNgay;
+                  const showLoaiNgay = Boolean(loaiNgay && loaiNgay !== "THUONG");
+
                   const baseWithRoom = st.gia_tien + roomSurcharge;
 
                   return (
                     <div>
                       <div>
-                        {baseWithRoom.toLocaleString("vi-VN")} đ{computedLoaiNgay ? ` (${computedLoaiNgay})` : ""}
+                        {baseWithRoom.toLocaleString("vi-VN")} đ{showLoaiNgay ? ` (${loaiNgay})` : ""}
                       </div>
                       <div style={{ color: "#aaa", fontSize: "0.75rem", marginTop: "6px" }}>
                         {st.ten_bang_gia ? <div>{st.ten_bang_gia}</div> : null}
