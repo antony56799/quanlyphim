@@ -92,7 +92,7 @@ const normalizeShowtimes = (raw: unknown, movieId: number): ShowtimeData[] => {
 
       const cinemaName = String(st["cinemaName"] ?? st["ten_rap"] ?? "Rạp");
       const roomName = String(st["roomName"] ?? st["ten_phong"] ?? "Phòng");
-      const price = asNumberOrNull(st["price"] ?? st["gia_tien"]);
+      const price = asNumberOrNull(st["price"] ?? st["gia_tien"] ?? st["basePrice"] ?? st["base_price"]);
       const mappedMovieId = asNumberOrNull(st["movieId"] ?? st["id_phim"]) ?? movieId;
 
       return {
@@ -124,8 +124,14 @@ const normalizeSeats = (raw: unknown): SeatData[] => {
 
       if (id == null || label == null) return null;
 
-      const isAvailableRaw = s["isAvailable"] ?? s["available"] ?? s["tinhtrang"] ?? true;
-      const isAvailable = Boolean(isAvailableRaw);
+      const statusRaw = asStringOrNull(s["status"]);
+      const trangThai = asNumberOrNull(s["trang_thai"] ?? s["trangThai"]);
+
+      const activeRaw = s["isAvailable"] ?? s["available"] ?? s["tinhtrang"] ?? true;
+      const active = Boolean(activeRaw);
+
+      const isBlocked = statusRaw === "booked" || statusRaw === "held" || trangThai === 0 || trangThai === 2;
+      const isAvailable = active && !isBlocked;
 
       const seatTypeName = asStringOrNull(s["seatTypeName"] ?? s["ten_loaighe"]);
       const extraFee = asNumberOrNull(s["extraFee"] ?? s["phu_phi"]);
@@ -446,7 +452,11 @@ const MovieDetailPage = () => {
                 <>
                   <div className="showtime-list" aria-label="Danh sách suất chiếu">
                     {showtimes.map((st) => {
-                      const label = `${new Date(st.startTime).toLocaleString("vi-VN")} • ${st.cinemaName} • ${st.roomName}`;
+                      const parsedStart = new Date(st.startTime);
+                      const startLabel = Number.isNaN(parsedStart.getTime())
+                        ? st.startTime
+                        : parsedStart.toLocaleString("vi-VN");
+                      const label = `${startLabel} • ${st.cinemaName} • ${st.roomName}`;
                       return (
                         <button
                           key={st.id}

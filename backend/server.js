@@ -122,6 +122,373 @@ app.get("/api/movies", async (req, res) => {
   }
 });
 
+app.get("/api/movies/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        p.id_phim,
+        p.ten_phim,
+        p.mo_ta,
+        p.thoi_luong,
+        p.ngay_khoi_chieu,
+        p.trang_thai,
+        p.poster_url,
+        p.trailer_url,
+        COALESCE(
+          ARRAY_AGG(DISTINCT tl.ten_loai) FILTER (WHERE tl.ten_loai IS NOT NULL),
+          ARRAY[]::varchar[]
+        ) AS genres,
+        COALESCE(
+          ARRAY_AGG(DISTINCT dd.ten_dao_dien) FILTER (WHERE dd.ten_dao_dien IS NOT NULL),
+          ARRAY[]::varchar[]
+        ) AS directors,
+        COALESCE(
+          ARRAY_AGG(DISTINCT dv.ten_dien_vien) FILTER (WHERE dv.ten_dien_vien IS NOT NULL),
+          ARRAY[]::varchar[]
+        ) AS actors
+      FROM phim p
+      LEFT JOIN phim_theloai ptl ON p.id_phim = ptl.id_phim
+      LEFT JOIN theloai tl ON ptl.id_loai = tl.id_loai
+      LEFT JOIN phim_daodien pdd ON p.id_phim = pdd.id_phim
+      LEFT JOIN daodien dd ON pdd.id_dao_dien = dd.id_dao_dien
+      LEFT JOIN phim_dienvien pdv ON p.id_phim = pdv.id_phim
+      LEFT JOIN dienvien dv ON pdv.id_dien_vien = dv.id_dien_vien
+      WHERE p.id_phim = $1
+      GROUP BY p.id_phim, p.ten_phim, p.mo_ta, p.thoi_luong, p.ngay_khoi_chieu, p.trang_thai, p.poster_url, p.trailer_url
+      LIMIT 1
+      `,
+      [id]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: "Không tìm thấy phim" });
+
+    const movie = result.rows[0];
+    res.json({
+      id: movie.id_phim,
+      title: movie.ten_phim,
+      description: movie.mo_ta,
+      mo_ta: movie.mo_ta,
+      thoi_luong: movie.thoi_luong,
+      ngay_khoi_chieu: movie.ngay_khoi_chieu,
+      trang_thai: movie.trang_thai,
+      posterUrl: buildPosterUrl(req, movie.poster_url),
+      poster_url: movie.poster_url,
+      trailerUrl: movie.trailer_url,
+      trailer_url: movie.trailer_url,
+      genres: movie.genres,
+      directors: movie.directors,
+      actors: movie.actors,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/showtimes", async (req, res) => {
+  const movieId = Number(req.query.movieId);
+  if (!Number.isFinite(movieId)) return res.status(400).json({ error: "Thiếu hoặc sai movieId" });
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        sc.id_sc,
+        sc.id_phim,
+        sc.id_pc,
+        pc.ten_phong,
+        pc.id_rap,
+        r.diachi AS ten_rap,
+        sc.gio_bat_dau,
+        sc.gio_ket_thuc,
+        sc.trang_thai,
+        COALESCE(bg.gia_tien, 0)::float8 AS gia_tien
+      FROM suat_chieu sc
+      JOIN phong_chieu pc ON sc.id_pc = pc.id_pc
+      JOIN rap r ON pc.id_rap = r.id_rap
+      JOIN bang_gia_co_ban bg ON sc.id_gia = bg.id_gia
+      WHERE sc.id_phim = $1
+      ORDER BY sc.gio_bat_dau, sc.id_sc
+      `,
+      [movieId]
+    );
+
+    res.json(
+      result.rows.map((row) => ({
+        id: row.id_sc,
+        showtimeId: row.id_sc,
+        movieId: row.id_phim,
+        roomId: row.id_pc,
+        roomName: row.ten_phong,
+        cinemaId: row.id_rap,
+        cinemaName: row.ten_rap,
+        startTime: row.gio_bat_dau,
+        endTime: row.gio_ket_thuc,
+        status: row.trang_thai,
+        basePrice: row.gia_tien,
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/showtimes/:id/seats", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    const stRes = await pool.query(`SELECT id_pc FROM suat_chieu WHERE id_sc = $1`, [id]);
+    if (stRes.rows.length === 0) return res.status(404).json({ error: "Suất chiếu không tồn tại" });
+
+    const id_pc = stRes.rows[0].id_pc;
+    const seatsRes = await pool.query(
+      `
+      SELECT
+        g.id_ghe,
+        g.hang,
+        g.so,
+        g.tinhtrang,
+        COALESCE(gsc.trang_thai, 1) AS trang_thai
+      FROM ghe g
+      LEFT JOIN ghe_suat_chieu gsc
+        ON gsc.id_sc = $1 AND gsc.id_ghe = g.id_ghe
+      WHERE g.id_pc = $2
+      ORDER BY g.hang, g.so
+      `,
+      [id, id_pc]
+    );
+
+    res.json(
+      seatsRes.rows.map((s) => {
+        const trangThai = Number(s.trang_thai);
+        const active = Boolean(s.tinhtrang);
+        let status = "available";
+        if (!active) status = "disabled";
+        else if (trangThai === 0) status = "booked";
+        else if (trangThai === 2) status = "held";
+
+        return {
+          id: s.id_ghe,
+          id_ghe: s.id_ghe,
+          hang: s.hang,
+          so: s.so,
+          label: `${s.hang}${s.so}`,
+          tinhtrang: active,
+          trang_thai: trangThai,
+          status,
+        };
+      })
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/bookings", async (req, res) => {
+  const movieId = Number(req.body?.movieId);
+  const showtimeId = Number(req.body?.showtimeId);
+  const seatIdsRaw = req.body?.seatIds;
+
+  if (!Number.isFinite(movieId) || !Number.isFinite(showtimeId) || !Array.isArray(seatIdsRaw)) {
+    return res.status(400).json({ error: "Dữ liệu không hợp lệ: movieId, showtimeId, seatIds[]" });
+  }
+
+  const seatIds = Array.from(
+    new Set(
+      seatIdsRaw
+        .map((x) => Number(x))
+        .filter((x) => Number.isFinite(x))
+    )
+  );
+
+  if (seatIds.length === 0) {
+    return res.status(400).json({ error: "seatIds không được rỗng" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const stRes = await client.query(
+      `
+      SELECT
+        sc.id_sc,
+        sc.id_phim,
+        sc.id_pc,
+        sc.id_gia,
+        COALESCE(bg.gia_tien, 0)::float8 AS gia_tien
+      FROM suat_chieu sc
+      JOIN bang_gia_co_ban bg ON sc.id_gia = bg.id_gia
+      WHERE sc.id_sc = $1
+      `,
+      [showtimeId]
+    );
+
+    if (stRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Suất chiếu không tồn tại" });
+    }
+
+    const st = stRes.rows[0];
+    if (Number(st.id_phim) !== movieId) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "movieId không khớp với suất chiếu" });
+    }
+
+    const seatsRes = await client.query(
+      `
+      SELECT
+        g.id_ghe,
+        g.hang,
+        g.so,
+        g.tinhtrang,
+        COALESCE(g.id_loaighe, 1) AS id_loaighe,
+        COALESCE(lg.phu_phi, 0)::float8 AS phu_phi
+      FROM ghe g
+      LEFT JOIN loai_ghe lg ON g.id_loaighe = lg.id_loaighe
+      WHERE g.id_pc = $1
+        AND g.id_ghe = ANY($2::int[])
+      `,
+      [st.id_pc, seatIds]
+    );
+
+    if (seatsRes.rows.length !== seatIds.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Có ghế không thuộc phòng của suất chiếu" });
+    }
+
+    if (seatsRes.rows.some((s) => !s.tinhtrang)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Có ghế đang không hoạt động" });
+    }
+
+    const lockRes = await client.query(
+      `
+      SELECT id_ghe, trang_thai
+      FROM ghe_suat_chieu
+      WHERE id_sc = $1
+        AND id_ghe = ANY($2::int[])
+      FOR UPDATE
+      `,
+      [showtimeId, seatIds]
+    );
+
+    const statusBySeat = new Map(lockRes.rows.map((r) => [Number(r.id_ghe), Number(r.trang_thai)]));
+    const conflict = seatIds.find((sid) => {
+      const stt = statusBySeat.get(sid);
+      return stt !== undefined && stt !== 1;
+    });
+
+    if (conflict !== undefined) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Ghế đã được giữ/đặt", seatId: conflict });
+    }
+
+    const seatTypeIds = Array.from(new Set(seatsRes.rows.map((s) => Number(s.id_loaighe))));
+    const overrideRes = await client.query(
+      `
+      SELECT id_loaighe, gia_ve_ap_dung::float8 AS gia_ve
+      FROM suat_chieu_gia
+      WHERE id_sc = $1
+        AND id_loaighe = ANY($2::int[])
+      `,
+      [showtimeId, seatTypeIds]
+    );
+
+    const overrideByType = new Map(overrideRes.rows.map((r) => [Number(r.id_loaighe), Number(r.gia_ve)]));
+
+    const items = seatsRes.rows.map((s) => {
+      const typeId = Number(s.id_loaighe);
+      const base = Number(st.gia_tien) + Number(s.phu_phi);
+      const price = overrideByType.has(typeId) ? overrideByType.get(typeId) : base;
+      return {
+        seatId: Number(s.id_ghe),
+        hang: s.hang,
+        so: s.so,
+        label: `${s.hang}${s.so}`,
+        seatTypeId: typeId,
+        price: Number(price || 0),
+      };
+    });
+
+    const total = items.reduce((sum, it) => sum + Number(it.price || 0), 0);
+
+    const maGiaoDich = `BK${Date.now()}${Math.random().toString(16).slice(2, 8).toUpperCase()}`;
+    const hdRes = await client.query(
+      `
+      INSERT INTO hoa_don (ma_giao_dich, id_kh, id_nv, tong_tien_hd, trang_thai)
+      VALUES ($1, NULL, NULL, $2, 0)
+      RETURNING id_hd, ma_giao_dich, ngay_tao, tong_tien_hd, trang_thai
+      `,
+      [maGiaoDich, total]
+    );
+
+    const id_hd = hdRes.rows[0].id_hd;
+
+    {
+      const values = [];
+      const params = [showtimeId];
+      let idx = 2;
+      for (const sid of seatIds) {
+        values.push(`($1, $${idx++}::int, 0, NULL, NULL)`);
+        params.push(sid);
+      }
+
+      await client.query(
+        `
+        INSERT INTO ghe_suat_chieu (id_sc, id_ghe, trang_thai, session_id, thoi_gian_giu)
+        VALUES ${values.join(", ")}
+        ON CONFLICT (id_sc, id_ghe)
+        DO UPDATE SET trang_thai = EXCLUDED.trang_thai, session_id = NULL, thoi_gian_giu = NULL
+        `,
+        params
+      );
+    }
+
+    let ticketRows = [];
+    {
+      const values = [];
+      const params = [id_hd, showtimeId];
+      let idx = 3;
+      for (const it of items) {
+        values.push(`($1, $2, $${idx++}::int, $${idx++}::numeric, 1)`);
+        params.push(it.seatId, it.price);
+      }
+
+      const veRes = await client.query(
+        `
+        INSERT INTO ve (id_hd, id_sc, id_ghe, gia_ve, ttv)
+        VALUES ${values.join(", ")}
+        RETURNING id_ve, id_ghe, gia_ve
+        `,
+        params
+      );
+      ticketRows = veRes.rows;
+    }
+
+    await client.query("COMMIT");
+    return res.status(201).json({
+      success: true,
+      bookingId: id_hd,
+      ma_giao_dich: hdRes.rows[0].ma_giao_dich,
+      showtimeId,
+      movieId,
+      total: Number(hdRes.rows[0].tong_tien_hd || total),
+      items,
+      tickets: ticketRows,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Admin login endpoint
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;

@@ -741,7 +741,7 @@
 
 .movie-detail__top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
   gap: 24px;
   align-items: start;
   padding: 24px;
@@ -775,6 +775,8 @@
 
 .movie-detail__poster {
   width: 100%;
+  max-width: 360px;
+  justify-self: end;
   aspect-ratio: 2 / 3;
   border-radius: 22px;
   border: 1px solid rgba(161, 101, 54, 0.16);
