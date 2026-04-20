@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import bannerImage from "../assets/banner.png";
 import type { MovieCardData } from "../types/movie";
 import Background from "./layout/Background";
@@ -10,6 +11,7 @@ const joinOrFallback = (items: string[], fallback: string) =>
   items.length > 0 ? items.join(", ") : fallback;
 
 const HomePage = () => {
+  const navigate = useNavigate();
   const [movies, setMovies] = useState<MovieCardData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +93,19 @@ const HomePage = () => {
           {!isLoading && !error && movies.length > 0 && (
             <div className="movie-grid">
               {movies.map((movie) => (
-                <article key={movie.id} className="movie-card">
+                <article
+                  key={movie.id}
+                  className="movie-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/movies/${movie.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/movies/${movie.id}`);
+                    }
+                  }}
+                >
                   <div className="movie-card__poster-wrap">
                     {movie.posterUrl ? (
                       <img

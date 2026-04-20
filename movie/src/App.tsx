@@ -4,12 +4,14 @@ import Login from "./components/Login";
 import Register from "./components/Register";
 import HomePage from "./components/HomePage";
 import AdminDashboard from "./components/AdminDashboard";
+import MovieDetailPage from "./components/MovieDetailPage";
 
 function App() {
   return (
     <Router>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/movies/:id" element={<MovieDetailPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin" element={<AdminDashboard />} />
