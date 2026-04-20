@@ -2273,6 +2273,278 @@ app.delete("/api/admin/phong-chieu/:id", async (req, res) => {
   }
 });
 
+app.get("/api/admin/doanh-thu", async (req, res) => {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const toDateOnly = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const isDateOnly = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+
+  const today = new Date();
+  const defaultFrom = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+
+  const tu_ngay = String(req.query?.tu_ngay || "").trim() || toDateOnly(defaultFrom);
+  const den_ngay = String(req.query?.den_ngay || "").trim() || toDateOnly(today);
+
+  if (!isDateOnly(tu_ngay) || !isDateOnly(den_ngay)) {
+    return res.status(400).json({ error: "tu_ngay/den_ngay phải có dạng YYYY-MM-DD" });
+  }
+
+  const id_rap_raw = req.query?.id_rap;
+  const id_phim_raw = req.query?.id_phim;
+
+  const id_rap = id_rap_raw === undefined || id_rap_raw === null || String(id_rap_raw).trim() === "" ? null : Number(id_rap_raw);
+  const id_phim = id_phim_raw === undefined || id_phim_raw === null || String(id_phim_raw).trim() === "" ? null : Number(id_phim_raw);
+
+  if (id_rap !== null && !Number.isFinite(id_rap)) return res.status(400).json({ error: "id_rap không hợp lệ" });
+  if (id_phim !== null && !Number.isFinite(id_phim)) return res.status(400).json({ error: "id_phim không hợp lệ" });
+
+  const params = [tu_ngay, den_ngay, id_rap, id_phim];
+
+  try {
+    const [summaryRes, byDateRes, byMovieRes, byCinemaRes, invoicesRes] = await Promise.all([
+      pool.query(
+        `
+        WITH inv AS (
+          SELECT DISTINCT
+            hd.id_hd,
+            hd.tong_tien_hd::float8 AS tong
+          FROM hoa_don hd
+          JOIN ve v ON v.id_hd = hd.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+        )
+        SELECT
+          COALESCE(SUM(tong), 0)::float8 AS total_revenue,
+          COUNT(*)::int AS total_bookings
+        FROM inv
+        `,
+        params
+      ),
+      pool.query(
+        `
+        WITH inv AS (
+          SELECT DISTINCT
+            hd.id_hd,
+            DATE(hd.ngay_tao) AS day,
+            hd.tong_tien_hd::float8 AS tong
+          FROM hoa_don hd
+          JOIN ve v ON v.id_hd = hd.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+        ),
+        inv_sum AS (
+          SELECT day, SUM(tong)::float8 AS revenue, COUNT(*)::int AS bookings
+          FROM inv
+          GROUP BY day
+        ),
+        tickets AS (
+          SELECT
+            DATE(hd.ngay_tao) AS day,
+            COUNT(*)::int AS tickets
+          FROM ve v
+          JOIN hoa_don hd ON hd.id_hd = v.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+          GROUP BY DATE(hd.ngay_tao)
+        )
+        SELECT
+          inv_sum.day::text AS day,
+          inv_sum.revenue,
+          inv_sum.bookings,
+          COALESCE(tickets.tickets, 0)::int AS tickets
+        FROM inv_sum
+        LEFT JOIN tickets ON tickets.day = inv_sum.day
+        ORDER BY inv_sum.day
+        `,
+        params
+      ),
+      pool.query(
+        `
+        WITH inv AS (
+          SELECT DISTINCT
+            hd.id_hd,
+            sc.id_phim,
+            p.ten_phim,
+            hd.tong_tien_hd::float8 AS tong
+          FROM hoa_don hd
+          JOIN ve v ON v.id_hd = hd.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          JOIN phim p ON p.id_phim = sc.id_phim
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+        ),
+        inv_sum AS (
+          SELECT id_phim, ten_phim, SUM(tong)::float8 AS revenue, COUNT(*)::int AS bookings
+          FROM inv
+          GROUP BY id_phim, ten_phim
+        ),
+        tickets AS (
+          SELECT sc.id_phim, COUNT(*)::int AS tickets
+          FROM ve v
+          JOIN hoa_don hd ON hd.id_hd = v.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+          GROUP BY sc.id_phim
+        )
+        SELECT
+          inv_sum.id_phim,
+          inv_sum.ten_phim,
+          inv_sum.revenue,
+          inv_sum.bookings,
+          COALESCE(tickets.tickets, 0)::int AS tickets
+        FROM inv_sum
+        LEFT JOIN tickets ON tickets.id_phim = inv_sum.id_phim
+        ORDER BY inv_sum.revenue DESC, inv_sum.id_phim
+        `,
+        params
+      ),
+      pool.query(
+        `
+        WITH inv AS (
+          SELECT DISTINCT
+            hd.id_hd,
+            pc.id_rap,
+            r.diachi AS ten_rap,
+            hd.tong_tien_hd::float8 AS tong
+          FROM hoa_don hd
+          JOIN ve v ON v.id_hd = hd.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          JOIN rap r ON r.id_rap = pc.id_rap
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+        ),
+        inv_sum AS (
+          SELECT id_rap, ten_rap, SUM(tong)::float8 AS revenue, COUNT(*)::int AS bookings
+          FROM inv
+          GROUP BY id_rap, ten_rap
+        ),
+        tickets AS (
+          SELECT pc.id_rap, COUNT(*)::int AS tickets
+          FROM ve v
+          JOIN hoa_don hd ON hd.id_hd = v.id_hd
+          JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+          JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+          WHERE hd.ngay_tao >= $1::date
+            AND hd.ngay_tao < ($2::date + interval '1 day')
+            AND ($3::int IS NULL OR pc.id_rap = $3::int)
+            AND ($4::int IS NULL OR sc.id_phim = $4::int)
+            AND v.ttv = 1
+          GROUP BY pc.id_rap
+        )
+        SELECT
+          inv_sum.id_rap,
+          inv_sum.ten_rap,
+          inv_sum.revenue,
+          inv_sum.bookings,
+          COALESCE(tickets.tickets, 0)::int AS tickets
+        FROM inv_sum
+        LEFT JOIN tickets ON tickets.id_rap = inv_sum.id_rap
+        ORDER BY inv_sum.revenue DESC, inv_sum.id_rap
+        `,
+        params
+      ),
+      pool.query(
+        `
+        SELECT
+          hd.id_hd,
+          hd.ma_giao_dich,
+          hd.ngay_tao,
+          hd.tong_tien_hd::float8 AS tong_tien_hd,
+          hd.trang_thai,
+          sc.id_phim,
+          p.ten_phim,
+          pc.id_rap,
+          r.diachi AS ten_rap,
+          COUNT(v.id_ve)::int AS tickets
+        FROM hoa_don hd
+        JOIN ve v ON v.id_hd = hd.id_hd
+        JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+        JOIN phim p ON p.id_phim = sc.id_phim
+        JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+        JOIN rap r ON r.id_rap = pc.id_rap
+        WHERE hd.ngay_tao >= $1::date
+          AND hd.ngay_tao < ($2::date + interval '1 day')
+          AND ($3::int IS NULL OR pc.id_rap = $3::int)
+          AND ($4::int IS NULL OR sc.id_phim = $4::int)
+          AND v.ttv = 1
+        GROUP BY
+          hd.id_hd,
+          hd.ma_giao_dich,
+          hd.ngay_tao,
+          hd.tong_tien_hd,
+          hd.trang_thai,
+          sc.id_phim,
+          p.ten_phim,
+          pc.id_rap,
+          r.diachi
+        ORDER BY hd.ngay_tao DESC, hd.id_hd DESC
+        LIMIT 200
+        `,
+        params
+      ),
+    ]);
+
+    const total_tickets = await pool
+      .query(
+        `
+        SELECT COUNT(*)::int AS total_tickets
+        FROM ve v
+        JOIN hoa_don hd ON hd.id_hd = v.id_hd
+        JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+        JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+        WHERE hd.ngay_tao >= $1::date
+          AND hd.ngay_tao < ($2::date + interval '1 day')
+          AND ($3::int IS NULL OR pc.id_rap = $3::int)
+          AND ($4::int IS NULL OR sc.id_phim = $4::int)
+          AND v.ttv = 1
+        `,
+        params
+      )
+      .then((r) => Number(r.rows?.[0]?.total_tickets || 0));
+
+    return res.json({
+      summary: {
+        total_revenue: Number(summaryRes.rows?.[0]?.total_revenue || 0),
+        total_bookings: Number(summaryRes.rows?.[0]?.total_bookings || 0),
+        total_tickets,
+      },
+      byDate: byDateRes.rows || [],
+      byMovie: byMovieRes.rows || [],
+      byCinema: byCinemaRes.rows || [],
+      invoices: invoicesRes.rows || [],
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, async () => {
   console.log(`Server is running at http://localhost:${PORT}`);
 

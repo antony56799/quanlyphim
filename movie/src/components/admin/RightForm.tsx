@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime, BasePrice, SeatType } from "../../types/admin";
 
 interface RightFormProps {
-  activeSubTab: "movies" | "genres" | "rooms" | "showtimes" | "prices";
+  activeSubTab: "revenue" | "movies" | "genres" | "rooms" | "showtimes" | "prices";
   activeRoomTab: "cinemas" | "rooms" | "roomTypes";
   selectedMovie: AdminMovie | null;
   selectedGenre: Genre | null;
@@ -71,6 +71,15 @@ interface RightFormProps {
   onPriceFormChange: (field: string, value: string | number) => void;
   onPriceSubmit: (e: React.FormEvent) => void;
   onResetPriceForm: () => void;
+  revenueFormData: {
+    tu_ngay: string;
+    den_ngay: string;
+    id_rap: number | "all";
+    id_phim: number | "all";
+  };
+  onRevenueFormChange: (field: "tu_ngay" | "den_ngay" | "id_rap" | "id_phim", value: string | number | "all") => void;
+  onRevenueLoad: () => void;
+  onRevenueReset: () => void;
 }
 
 export const RightForm: React.FC<RightFormProps> = ({
@@ -121,12 +130,97 @@ export const RightForm: React.FC<RightFormProps> = ({
   onPriceFormChange,
   onPriceSubmit,
   onResetPriceForm,
+  revenueFormData,
+  onRevenueFormChange,
+  onRevenueLoad,
+  onRevenueReset,
 }) => {
   const [autoEndTimeEnabled, setAutoEndTimeEnabled] = useState(true);
   const [bulkEnabled, setBulkEnabled] = useState(false);
   const [bulkFromDate, setBulkFromDate] = useState("");
   const [bulkToDate, setBulkToDate] = useState("");
   const [bulkStartTime, setBulkStartTime] = useState("19:00");
+
+  if (activeSubTab === "revenue") {
+    return (
+      <aside className="right-form-aside">
+        <h3 className="form-title">Bộ lọc doanh thu</h3>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRevenueLoad();
+          }}
+          className="admin-form"
+        >
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Từ ngày</label>
+              <input
+                type="date"
+                value={revenueFormData.tu_ngay || ""}
+                onChange={(e) => onRevenueFormChange("tu_ngay", e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Đến ngày</label>
+              <input
+                type="date"
+                value={revenueFormData.den_ngay || ""}
+                onChange={(e) => onRevenueFormChange("den_ngay", e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Rạp</label>
+            <select
+              value={revenueFormData.id_rap}
+              onChange={(e) => {
+                const v = e.target.value;
+                onRevenueFormChange("id_rap", v === "all" ? "all" : parseInt(v, 10));
+              }}
+            >
+              <option value="all">Tất cả rạp</option>
+              {cinemas.map((c) => (
+                <option key={c.id_rap} value={c.id_rap}>
+                  {c.diachi || `Rạp ${c.id_rap}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Phim</label>
+            <select
+              value={revenueFormData.id_phim}
+              onChange={(e) => {
+                const v = e.target.value;
+                onRevenueFormChange("id_phim", v === "all" ? "all" : parseInt(v, 10));
+              }}
+            >
+              <option value="all">Tất cả phim</option>
+              {movies.map((m) => (
+                <option key={m.id_phim} value={m.id_phim}>
+                  {m.ten_phim}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="submit-button">
+              Xem báo cáo
+            </button>
+            <button type="button" onClick={onRevenueReset} className="cancel-button">
+              Xóa báo cáo
+            </button>
+          </div>
+        </form>
+      </aside>
+    );
+  }
 
   if (activeSubTab === "prices") {
     return (

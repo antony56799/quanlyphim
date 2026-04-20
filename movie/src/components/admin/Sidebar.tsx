@@ -3,13 +3,13 @@ import { FaChartBar, FaDoorOpen, FaChair, FaCalendarAlt, FaFilm, FaUsers, FaUser
 
 interface SidebarProps {
   activeSubTab: string;
-  onTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts") => void;
+  onTabChange: (tab: "revenue" | "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts") => void;
   onResetForms: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeSubTab, onTabChange, onResetForms }) => {
   const menuItems = [
-    { icon: <FaChartBar />, label: "Quản lý doanh thu" },
+    { icon: <FaChartBar />, label: "Quản lý doanh thu", tab: "revenue" as const },
     { icon: <FaDoorOpen />, label: "Quản lý phòng & Rạp", tab: "rooms" as const },
     { icon: <FaChair />, label: "Quản lý ghế", tab: "seats" as const },
     { icon: <FaCalendarAlt />, label: "Quản lý suất chiếu", tab: "showtimes" as const },

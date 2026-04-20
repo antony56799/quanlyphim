@@ -18,12 +18,35 @@ import ShowTimeTable from "./admin/ShowTimeTable";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
+type RevenueReport = {
+  summary: {
+    total_revenue: number;
+    total_bookings: number;
+    total_tickets: number;
+  };
+  byDate: Array<{ day: string; revenue: number; bookings: number; tickets: number }>;
+  byMovie: Array<{ id_phim: number; ten_phim: string; revenue: number; bookings: number; tickets: number }>;
+  byCinema: Array<{ id_rap: number; ten_rap: string; revenue: number; bookings: number; tickets: number }>;
+  invoices: Array<{
+    id_hd: number;
+    ma_giao_dich: string;
+    ngay_tao: string;
+    tong_tien_hd: number;
+    trang_thai: number;
+    id_phim: number;
+    ten_phim: string;
+    id_rap: number;
+    ten_rap: string;
+    tickets: number;
+  }>;
+};
+
 const AdminDashboard = () => {
   const { bulkCreateShowtimes } = useAdminShowtimes(API_BASE_URL);
 
   // --- States ---
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"revenue" | "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts">("movies");
   const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms" | "roomTypes">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -98,6 +121,16 @@ const AdminDashboard = () => {
     hieu_luc_tu: "",
     hieu_luc_den: ""
   });
+
+  const [revenueFormData, setRevenueFormData] = useState<{
+    tu_ngay: string;
+    den_ngay: string;
+    id_rap: number | "all";
+    id_phim: number | "all";
+  }>({ tu_ngay: "", den_ngay: "", id_rap: "all", id_phim: "all" });
+  const [revenueReport, setRevenueReport] = useState<RevenueReport | null>(null);
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueError, setRevenueError] = useState<string | null>(null);
 
   // --- API Calls ---
   const loadMovies = useCallback(async () => {
@@ -222,6 +255,37 @@ const AdminDashboard = () => {
     }
   }, []);
 
+  const loadRevenue = useCallback(async (payload?: { tu_ngay?: string; den_ngay?: string; id_rap?: number | "all"; id_phim?: number | "all" }) => {
+    const tu_ngay = payload?.tu_ngay ?? revenueFormData.tu_ngay;
+    const den_ngay = payload?.den_ngay ?? revenueFormData.den_ngay;
+    const id_rap = payload?.id_rap ?? revenueFormData.id_rap;
+    const id_phim = payload?.id_phim ?? revenueFormData.id_phim;
+
+    if (!tu_ngay || !den_ngay) return;
+
+    try {
+      setRevenueLoading(true);
+      setRevenueError(null);
+
+      const params = new URLSearchParams();
+      params.set("tu_ngay", tu_ngay);
+      params.set("den_ngay", den_ngay);
+      if (id_rap !== "all") params.set("id_rap", String(id_rap));
+      if (id_phim !== "all") params.set("id_phim", String(id_phim));
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/doanh-thu?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Không thể tải báo cáo doanh thu");
+
+      setRevenueReport(data);
+    } catch (error) {
+      setRevenueReport(null);
+      setRevenueError(error instanceof Error ? error.message : "Không thể tải báo cáo doanh thu");
+    } finally {
+      setRevenueLoading(false);
+    }
+  }, [revenueFormData.den_ngay, revenueFormData.id_phim, revenueFormData.id_rap, revenueFormData.tu_ngay]);
+
   useEffect(() => {
     loadMovies();
     loadGenres();
@@ -231,6 +295,24 @@ const AdminDashboard = () => {
     loadTicketPrices();
     loadRooms();
   }, [loadMovies, loadGenres, loadCinemas, loadRoomTypes, loadSeatTypes, loadTicketPrices, loadRooms]);
+
+  useEffect(() => {
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const toDateOnly = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+    setRevenueFormData((prev) => {
+      if (prev.tu_ngay && prev.den_ngay) return prev;
+      const today = new Date();
+      const from = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      return { ...prev, tu_ngay: prev.tu_ngay || toDateOnly(from), den_ngay: prev.den_ngay || toDateOnly(today) };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeSubTab !== "revenue") return;
+    if (!revenueFormData.tu_ngay || !revenueFormData.den_ngay) return;
+    loadRevenue();
+  }, [activeSubTab, loadRevenue, revenueFormData.den_ngay, revenueFormData.tu_ngay]);
 
   useEffect(() => {
     if (activeSubTab === "rooms" && activeRoomTab === "rooms") {
@@ -736,6 +818,131 @@ const AdminDashboard = () => {
                 <div className="loading-text">Đang tải...</div>
               ) : (
                 <>
+                  {activeSubTab === "revenue" && (
+                    <div className="table-wrapper">
+                      <div className="table-header">
+                        <h2 className="table-title">Quản lý doanh thu</h2>
+                        <div className="table-controls">
+                          <span className="table-count">
+                            {revenueReport
+                              ? `Doanh thu: ${Number(revenueReport.summary.total_revenue || 0).toLocaleString("vi-VN")} đ • Vé: ${Number(revenueReport.summary.total_tickets || 0).toLocaleString("vi-VN")} • Hóa đơn: ${Number(revenueReport.summary.total_bookings || 0).toLocaleString("vi-VN")}`
+                              : ""}
+                          </span>
+                        </div>
+                      </div>
+
+                      {revenueLoading ? (
+                        <div className="loading-text">Đang tải báo cáo...</div>
+                      ) : revenueError ? (
+                        <div className="loading-text">{revenueError}</div>
+                      ) : !revenueReport ? (
+                        <div className="loading-text">Chọn bộ lọc ở khung bên phải để xem báo cáo</div>
+                      ) : (
+                        <>
+                          <h3 style={{ margin: "12px 0" }}>Theo ngày</h3>
+                          <table className="admin-table">
+                            <thead>
+                              <tr>
+                                <th>Ngày</th>
+                                <th className="text-right">Doanh thu</th>
+                                <th className="text-right">Vé</th>
+                                <th className="text-right">Hóa đơn</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueReport.byDate.map((r) => (
+                                <tr key={r.day}>
+                                  <td>{r.day}</td>
+                                  <td className="text-right">{Number(r.revenue || 0).toLocaleString("vi-VN")} đ</td>
+                                  <td className="text-right">{Number(r.tickets || 0).toLocaleString("vi-VN")}</td>
+                                  <td className="text-right">{Number(r.bookings || 0).toLocaleString("vi-VN")}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          <div style={{ height: 16 }} />
+
+                          <h3 style={{ margin: "12px 0" }}>Top phim</h3>
+                          <table className="admin-table">
+                            <thead>
+                              <tr>
+                                <th>Phim</th>
+                                <th className="text-right">Doanh thu</th>
+                                <th className="text-right">Vé</th>
+                                <th className="text-right">Hóa đơn</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueReport.byMovie.map((r) => (
+                                <tr key={r.id_phim}>
+                                  <td>{r.ten_phim}</td>
+                                  <td className="text-right">{Number(r.revenue || 0).toLocaleString("vi-VN")} đ</td>
+                                  <td className="text-right">{Number(r.tickets || 0).toLocaleString("vi-VN")}</td>
+                                  <td className="text-right">{Number(r.bookings || 0).toLocaleString("vi-VN")}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          <div style={{ height: 16 }} />
+
+                          <h3 style={{ margin: "12px 0" }}>Top rạp</h3>
+                          <table className="admin-table">
+                            <thead>
+                              <tr>
+                                <th>Rạp</th>
+                                <th className="text-right">Doanh thu</th>
+                                <th className="text-right">Vé</th>
+                                <th className="text-right">Hóa đơn</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueReport.byCinema.map((r) => (
+                                <tr key={r.id_rap}>
+                                  <td>{r.ten_rap || `Rạp ${r.id_rap}`}</td>
+                                  <td className="text-right">{Number(r.revenue || 0).toLocaleString("vi-VN")} đ</td>
+                                  <td className="text-right">{Number(r.tickets || 0).toLocaleString("vi-VN")}</td>
+                                  <td className="text-right">{Number(r.bookings || 0).toLocaleString("vi-VN")}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          <div style={{ height: 16 }} />
+
+                          <h3 style={{ margin: "12px 0" }}>Hóa đơn gần đây</h3>
+                          <table className="admin-table">
+                            <thead>
+                              <tr>
+                                <th>Mã GD</th>
+                                <th>Ngày</th>
+                                <th>Phim</th>
+                                <th>Rạp</th>
+                                <th className="text-right">Vé</th>
+                                <th className="text-right">Tổng tiền</th>
+                                <th className="text-right">Trạng thái</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueReport.invoices.map((r) => (
+                                <tr key={r.id_hd}>
+                                  <td className="bold">{r.ma_giao_dich}</td>
+                                  <td>{new Date(r.ngay_tao).toLocaleString("vi-VN")}</td>
+                                  <td>{r.ten_phim}</td>
+                                  <td>{r.ten_rap || `Rạp ${r.id_rap}`}</td>
+                                  <td className="text-right">{Number(r.tickets || 0).toLocaleString("vi-VN")}</td>
+                                  <td className="text-right">{Number(r.tong_tien_hd || 0).toLocaleString("vi-VN")} đ</td>
+                                  <td className="text-right">{String(r.trang_thai)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {activeSubTab === "movies" && (
                     <MovieTable
                       movies={movies}
@@ -984,6 +1191,18 @@ const AdminDashboard = () => {
               onPriceFormChange={(field, val) => setPriceFormData((prev) => ({ ...prev, [field]: val }))}
               onPriceSubmit={handleSubmitTicketPrice}
               onResetPriceForm={handleResetTicketPriceForm}
+              revenueFormData={revenueFormData}
+              onRevenueFormChange={(field, val) =>
+                setRevenueFormData((prev) => ({
+                  ...prev,
+                  [field]: field === "id_rap" || field === "id_phim" ? (val === "all" ? "all" : Number(val)) : String(val),
+                }))
+              }
+              onRevenueLoad={() => loadRevenue()}
+              onRevenueReset={() => {
+                setRevenueReport(null);
+                setRevenueError(null);
+              }}
             />
           </>
         )}
