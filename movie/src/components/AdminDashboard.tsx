@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Background from "./layout/Background";
 import Header from "./layout/Header";
-import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime } from "../types/admin";
+import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime, BasePrice, SeatType } from "../types/admin";
+import { useAdminShowtimes } from "../hooks/useAdminShowtimes";
 import Sidebar from "./admin/Sidebar";
 import TopTabs from "./admin/TopTabs";
 import MovieTable from "./admin/MovieTable";
@@ -16,15 +17,19 @@ import ShowTimeTable from "./admin/ShowTimeTable";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const AdminDashboard = () => {
+  const { bulkCreateShowtimes } = useAdminShowtimes(API_BASE_URL);
+
   // --- States ---
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices">("movies");
   const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms" | "roomTypes">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [cinemas, setCinemas] = useState<Cinema[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [seatTypes, setSeatTypes] = useState<SeatType[]>([]);
+  const [ticketPrices, setTicketPrices] = useState<BasePrice[]>([]);
   const [selectedCinemaIdForFilter, setSelectedCinemaIdForFilter] = useState<number | "all">("all");
 
   const [showtimes, setShowtimes] = useState<Showtime[]>([]);
@@ -46,6 +51,7 @@ const AdminDashboard = () => {
   const [selectedCinema, setSelectedCinema] = useState<Cinema | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | null>(null);
+  const [selectedTicketPrice, setSelectedTicketPrice] = useState<BasePrice | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -81,6 +87,14 @@ const AdminDashboard = () => {
   const [roomTypeFormData, setRoomTypeFormData] = useState({
     ten_loai: "",
     gia: 0
+  });
+
+  const [priceFormData, setPriceFormData] = useState({
+    ten_bang_gia: "",
+    gia_tien: 0,
+    loai_ngay: "THUONG",
+    hieu_luc_tu: "",
+    hieu_luc_den: ""
   });
 
   // --- API Calls ---
@@ -182,19 +196,51 @@ const AdminDashboard = () => {
     }
   }, []);
 
+  const loadSeatTypes = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/loaighe`);
+      if (response.ok) {
+        const data = await response.json();
+        setSeatTypes(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error("Error loading seat types:", error);
+    }
+  }, []);
+
+  const loadTicketPrices = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/bang-gia`);
+      if (response.ok) {
+        const data = await response.json();
+        setTicketPrices(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error("Error loading ticket prices:", error);
+    }
+  }, []);
+
   useEffect(() => {
     loadMovies();
     loadGenres();
     loadCinemas();
     loadRoomTypes();
+    loadSeatTypes();
+    loadTicketPrices();
     loadRooms();
-  }, [loadMovies, loadGenres, loadCinemas, loadRoomTypes, loadRooms]);
+  }, [loadMovies, loadGenres, loadCinemas, loadRoomTypes, loadSeatTypes, loadTicketPrices, loadRooms]);
 
   useEffect(() => {
     if (activeSubTab === "rooms" && activeRoomTab === "rooms") {
       loadRooms(selectedCinemaIdForFilter);
     }
   }, [selectedCinemaIdForFilter, activeRoomTab, activeSubTab, loadRooms]);
+
+  useEffect(() => {
+    if (activeSubTab !== "showtimes") return;
+    if (rooms.length > 0) return;
+    loadRooms(showtimeFilterCinemaId);
+  }, [activeSubTab, rooms.length, showtimeFilterCinemaId, loadRooms]);
 
   // --- Handlers ---
   const handleUpdateStatus = async (id: number, newStatus: string) => {
@@ -372,6 +418,47 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleSubmitTicketPrice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = selectedTicketPrice
+      ? `${API_BASE_URL}/api/admin/bang-gia/${selectedTicketPrice.id_gia}`
+      : `${API_BASE_URL}/api/admin/bang-gia`;
+    const method = selectedTicketPrice ? "PUT" : "POST";
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...priceFormData,
+          hieu_luc_tu: priceFormData.hieu_luc_tu || null,
+          hieu_luc_den: priceFormData.hieu_luc_den || null,
+        }),
+      });
+      if (response.ok) {
+        handleResetTicketPriceForm();
+        loadTicketPrices();
+      }
+    } catch (error) {
+      console.error("Error submitting ticket price:", error);
+    }
+  };
+
+  const handleDeleteTicketPrice = async (id: number) => {
+    if (!window.confirm("Bạn có chắc muốn xóa bảng giá này?")) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/bang-gia/${id}`, { method: "DELETE" });
+      if (response.ok) {
+        loadTicketPrices();
+        if (selectedTicketPrice?.id_gia === id) handleResetTicketPriceForm();
+      } else {
+        const data = await response.json().catch(() => null);
+        alert(data?.error || "Không thể xóa bảng giá");
+      }
+    } catch (error) {
+      console.error("Error deleting ticket price:", error);
+    }
+  };
+
   // --- Reset Forms ---
   const handleResetForm = () => {
     setSelectedMovie(null);
@@ -389,7 +476,6 @@ const AdminDashboard = () => {
   const handleResetCinemaForm = () => {
     setSelectedCinema(null);
     setCinemaFormData({ diachi: "", sdt_rap: "", trang_thai: true });
-    setRooms([]);
   };
 
   const handleResetRoomForm = () => {
@@ -400,6 +486,11 @@ const AdminDashboard = () => {
   const handleResetRoomTypeForm = () => {
     setSelectedRoomType(null);
     setRoomTypeFormData({ ten_loai: "", gia: 0 });
+  };
+
+  const handleResetTicketPriceForm = () => {
+    setSelectedTicketPrice(null);
+    setPriceFormData({ ten_bang_gia: "", gia_tien: 0, loai_ngay: "THUONG", hieu_luc_tu: "", hieu_luc_den: "" });
   };
 
   const handleResetShowtimeForm = () => {
@@ -420,6 +511,7 @@ const AdminDashboard = () => {
     handleResetCinemaForm();
     handleResetRoomForm();
     handleResetRoomTypeForm();
+    handleResetTicketPriceForm();
     handleResetShowtimeForm();
   };
 
@@ -477,6 +569,17 @@ const AdminDashboard = () => {
   const handleEditRoomType = (type: RoomType) => {
     setSelectedRoomType(type);
     setRoomTypeFormData({ ten_loai: type.ten_loai, gia: type.gia });
+  };
+
+  const handleEditTicketPrice = (price: BasePrice) => {
+    setSelectedTicketPrice(price);
+    setPriceFormData({
+      ten_bang_gia: price.ten_bang_gia,
+      gia_tien: price.gia_tien,
+      loai_ngay: price.loai_ngay || "THUONG",
+      hieu_luc_tu: price.hieu_luc_tu ? String(price.hieu_luc_tu).split("T")[0] : "",
+      hieu_luc_den: price.hieu_luc_den ? String(price.hieu_luc_den).split("T")[0] : "",
+    });
   };
 
   useEffect(() => {
@@ -564,6 +667,31 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleBulkCreateShowtimes = async (payload: { tu_ngay: string; den_ngay: string; gio_bat_dau: string }) => {
+    try {
+      if (!showtimeFormData.id_phim || !showtimeFormData.id_pc) {
+        alert("Vui lòng chọn phim và phòng chiếu trước");
+        return;
+      }
+
+      const data = await bulkCreateShowtimes({
+        id_phim: showtimeFormData.id_phim,
+        id_pc: showtimeFormData.id_pc,
+        tu_ngay: payload.tu_ngay,
+        den_ngay: payload.den_ngay,
+        gio_bat_dau: payload.gio_bat_dau,
+      });
+
+      alert(
+        `Đã tạo ${data?.inserted ?? 0} suất chiếu (yêu cầu: ${data?.requested ?? "?"}, trùng giờ: ${data?.skipped_overlap ?? 0}, thiếu bảng giá: ${data?.skipped_no_price ?? 0})`
+      );
+      loadShowtimes(showtimeFilterCinemaId, showtimeFilterRoomId);
+    } catch (error) {
+      console.error("Error bulk creating showtimes:", error);
+      alert(error instanceof Error ? error.message : "Không thể tạo suất chiếu hàng loạt");
+    }
+  };
+
   return (
     <Background>
       <Header />
@@ -645,6 +773,8 @@ const AdminDashboard = () => {
                       showtimes={showtimes}
                       cinemas={cinemas}
                       rooms={rooms}
+                      roomTypes={roomTypes}
+                      seatTypes={seatTypes}
                       selectedCinemaId={showtimeFilterCinemaId}
                       selectedRoomId={showtimeFilterRoomId}
                       onCinemaChange={(id: number | "all") => {
@@ -657,6 +787,47 @@ const AdminDashboard = () => {
                       onEditShowtimeClick={handleEditShowtime}
                       onDeleteShowtime={handleDeleteShowtime}
                     />
+                  )}
+
+                  {activeSubTab === "prices" && (
+                    <div className="table-wrapper">
+                      <div className="table-header">
+                        <h2 className="table-title">Quản lý bảng giá vé</h2>
+                        <span className="table-count">{ticketPrices.length} bảng giá</span>
+                      </div>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Tên bảng giá</th>
+                            <th>Giá tiền</th>
+                            <th>Loại ngày</th>
+                            <th className="text-right">Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ticketPrices.map((price) => (
+                            <tr key={price.id_gia} onClick={() => handleEditTicketPrice(price)} className="clickable-row">
+                              <td>{price.id_gia}</td>
+                              <td className="bold">{price.ten_bang_gia}</td>
+                              <td>{price.gia_tien.toLocaleString("vi-VN")} đ</td>
+                              <td>{price.loai_ngay || "THUONG"}</td>
+                              <td className="text-right">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteTicketPrice(price.id_gia);
+                                  }}
+                                  className="delete-button-small"
+                                >
+                                  Xóa
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </>
               )}
@@ -694,13 +865,72 @@ const AdminDashboard = () => {
               onResetRoomTypeForm={handleResetRoomTypeForm}
               loadGenres={loadGenres}
               selectedShowtime={selectedShowtime}
+              selectedPrice={selectedTicketPrice}
               showtimeFormData={showtimeFormData}
+              priceFormData={priceFormData}
               movies={movies}
               cinemas={cinemas}
               rooms={rooms}
-              onShowtimeFormChange={(field, val) => setShowtimeFormData({ ...showtimeFormData, [field]: val })}
+              seatTypes={seatTypes}
+              ticketPrices={ticketPrices}
+              onShowtimeFormChange={(field, val) =>
+                setShowtimeFormData((prev) => {
+                  const safeVal = typeof val === "number" && Number.isNaN(val) ? 0 : val;
+                  const next = { ...prev, [field]: safeVal };
+
+                  const parseDateOnly = (raw?: string | null) => {
+                    if (!raw) return null;
+                    const d = new Date(String(raw));
+                    if (Number.isNaN(d.getTime())) return null;
+                    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                  };
+
+                  const isEffective = (price: BasePrice, d: Date) => {
+                    const from = parseDateOnly(price.hieu_luc_tu ?? null);
+                    const to = parseDateOnly(price.hieu_luc_den ?? null);
+                    if (from && d < from) return false;
+                    if (to && d > to) return false;
+                    return true;
+                  };
+
+                  const pickPrice = (start: Date) => {
+                    const day = start.getDay();
+                    const computedLoaiNgay = day === 0 || day === 6 ? "LE" : "THUONG";
+                    const dateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+
+                    const candidates = ticketPrices
+                      .filter((p) => (p.loai_ngay || "THUONG") === computedLoaiNgay)
+                      .filter((p) => isEffective(p, dateOnly));
+
+                    candidates.sort((a, b) => {
+                      const aFrom = parseDateOnly(a.hieu_luc_tu ?? null)?.getTime() ?? -1;
+                      const bFrom = parseDateOnly(b.hieu_luc_tu ?? null)?.getTime() ?? -1;
+                      if (aFrom !== bFrom) return bFrom - aFrom;
+                      return (b.id_gia || 0) - (a.id_gia || 0);
+                    });
+
+                    return candidates[0] || null;
+                  };
+
+                  if (field === "gio_bat_dau" || field === "id_pc" || field === "id_rap") {
+                    const start = next.gio_bat_dau ? new Date(next.gio_bat_dau) : null;
+                    if (start && !Number.isNaN(start.getTime())) {
+                      const picked = pickPrice(start);
+                      if (picked && next.id_gia !== picked.id_gia) {
+                        next.id_gia = picked.id_gia;
+                      }
+                    }
+                  }
+
+                  return next;
+                })
+              }
               onShowtimeSubmit={handleSubmitShowtime}
               onResetShowtimeForm={handleResetShowtimeForm}
+              onShowtimeBulkCreate={handleBulkCreateShowtimes}
+              onPriceFormChange={(field, val) => setPriceFormData((prev) => ({ ...prev, [field]: val }))}
+              onPriceSubmit={handleSubmitTicketPrice}
+              onResetPriceForm={handleResetTicketPriceForm}
             />
           </>
         )}

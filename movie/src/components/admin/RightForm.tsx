@@ -1,8 +1,8 @@
-import React from "react";
-import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime } from "../../types/admin";
+import React, { useState } from "react";
+import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime, BasePrice, SeatType } from "../../types/admin";
 
 interface RightFormProps {
-  activeSubTab: "movies" | "genres" | "rooms" | "showtimes";
+  activeSubTab: "movies" | "genres" | "rooms" | "showtimes" | "prices";
   activeRoomTab: "cinemas" | "rooms" | "roomTypes";
   selectedMovie: AdminMovie | null;
   selectedGenre: Genre | null;
@@ -10,6 +10,7 @@ interface RightFormProps {
   selectedRoom: Room | null;
   selectedRoomType: RoomType | null;
   selectedShowtime: Showtime | null;
+  selectedPrice: BasePrice | null;
   formData: {
     ten_phim: string;
     mo_ta: string;
@@ -30,6 +31,8 @@ interface RightFormProps {
   movies: AdminMovie[];
   cinemas: Cinema[];
   rooms: Room[];
+  seatTypes: SeatType[];
+  ticketPrices: BasePrice[];
   showtimeFormData: {
     id_phim: number;
     id_rap: number;
@@ -37,6 +40,13 @@ interface RightFormProps {
     id_gia: number;
     gio_bat_dau: string;
     gio_ket_thuc: string;
+  };
+  priceFormData: {
+    ten_bang_gia: string;
+    gia_tien: number;
+    loai_ngay: string;
+    hieu_luc_tu: string | null;
+    hieu_luc_den: string | null;
   };
   onFormChange: (field: string, value: string | number | string[]) => void;
   onGenreFormChange: (field: string, value: string) => void;
@@ -57,6 +67,10 @@ interface RightFormProps {
   onShowtimeFormChange: (field: string, value: string | number) => void;
   onShowtimeSubmit: (e: React.FormEvent) => void;
   onResetShowtimeForm: () => void;
+  onShowtimeBulkCreate: (payload: { tu_ngay: string; den_ngay: string; gio_bat_dau: string }) => void;
+  onPriceFormChange: (field: string, value: string | number) => void;
+  onPriceSubmit: (e: React.FormEvent) => void;
+  onResetPriceForm: () => void;
 }
 
 export const RightForm: React.FC<RightFormProps> = ({
@@ -92,16 +106,118 @@ export const RightForm: React.FC<RightFormProps> = ({
   onResetRoomTypeForm,
   loadGenres,
   selectedShowtime,
+  selectedPrice,
   movies,
   cinemas,
   rooms,
+  seatTypes,
+  ticketPrices,
   showtimeFormData,
+  priceFormData,
   onShowtimeFormChange,
   onShowtimeSubmit,
   onResetShowtimeForm,
+  onShowtimeBulkCreate,
+  onPriceFormChange,
+  onPriceSubmit,
+  onResetPriceForm,
 }) => {
+  const [autoEndTimeEnabled, setAutoEndTimeEnabled] = useState(true);
+  const [bulkEnabled, setBulkEnabled] = useState(false);
+  const [bulkFromDate, setBulkFromDate] = useState("");
+  const [bulkToDate, setBulkToDate] = useState("");
+  const [bulkStartTime, setBulkStartTime] = useState("19:00");
+
+  if (activeSubTab === "prices") {
+    return (
+      <aside className="right-form-aside">
+        <h3 className="form-title">{selectedPrice ? "Chỉnh sửa bảng giá" : "Thêm bảng giá mới"}</h3>
+        <form onSubmit={onPriceSubmit} className="admin-form">
+          <div className="form-group">
+            <label>Tên bảng giá</label>
+            <input type="text" required value={priceFormData.ten_bang_gia} onChange={(e) => onPriceFormChange("ten_bang_gia", e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label>Giá tiền (VNĐ)</label>
+            <input type="number" min="0" required value={priceFormData.gia_tien} onChange={(e) => onPriceFormChange("gia_tien", parseInt(e.target.value || "0"))} />
+          </div>
+          <div className="form-group">
+            <label>Loại ngày</label>
+            <select value={priceFormData.loai_ngay} onChange={(e) => onPriceFormChange("loai_ngay", e.target.value)}>
+              <option value="THUONG">Thường</option>
+              <option value="CUOI_TUAN">Cuối tuần</option>
+              <option value="LE">Lễ</option>
+              <option value="TET">Tết</option>
+              <option value="SUAT_KHUYA">Suất khuya</option>
+              <option value="KHUYEN_MAI">Khuyến mãi</option>
+            </select>
+          </div>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Hiệu lực từ</label>
+              <input
+                type="date"
+                value={priceFormData.hieu_luc_tu || ""}
+                onChange={(e) => onPriceFormChange("hieu_luc_tu", e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>Hiệu lực đến</label>
+              <input
+                type="date"
+                value={priceFormData.hieu_luc_den || ""}
+                onChange={(e) => onPriceFormChange("hieu_luc_den", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="submit-button">{selectedPrice ? "Cập nhật" : "Thêm mới"}</button>
+            {selectedPrice && <button type="button" onClick={onResetPriceForm} className="cancel-button">Hủy</button>}
+          </div>
+        </form>
+      </aside>
+    );
+  }
+
   if (activeSubTab === "showtimes") {
     const roomsForCinema = rooms.filter((r) => r.id_rap === showtimeFormData.id_rap);
+    const selectedRoomForPrice = rooms.find((r) => r.id_pc === showtimeFormData.id_pc) || null;
+    const selectedRoomTypeForPrice = selectedRoomForPrice
+      ? roomTypes.find((t) => t.id_loai === selectedRoomForPrice.id_loai) || null
+      : null;
+    const roomSurcharge = selectedRoomTypeForPrice?.gia ?? 0;
+
+    const parseDateOnly = (raw?: string | null) => {
+      if (!raw) return null;
+      const d = new Date(String(raw));
+      if (Number.isNaN(d.getTime())) return null;
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+
+    const startForPrice = showtimeFormData.gio_bat_dau ? new Date(showtimeFormData.gio_bat_dau) : null;
+    const computedLoaiNgay = startForPrice && !Number.isNaN(startForPrice.getTime())
+      ? (startForPrice.getDay() === 0 || startForPrice.getDay() === 6 ? "LE" : "THUONG")
+      : null;
+
+    const isEffective = (price: BasePrice, d: Date) => {
+      const from = parseDateOnly(price.hieu_luc_tu ?? null);
+      const to = parseDateOnly(price.hieu_luc_den ?? null);
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    };
+
+    const effectivePrices = (() => {
+      if (!computedLoaiNgay || !startForPrice || Number.isNaN(startForPrice.getTime())) return ticketPrices;
+      const dateOnly = new Date(startForPrice.getFullYear(), startForPrice.getMonth(), startForPrice.getDate());
+      return ticketPrices
+        .filter((p) => (p.loai_ngay || "THUONG") === computedLoaiNgay)
+        .filter((p) => isEffective(p, dateOnly));
+    })();
+
+    const selectedBasePrice = ticketPrices.find((p) => p.id_gia === showtimeFormData.id_gia) || null;
+    const baseAmount = selectedBasePrice?.gia_tien ?? 0;
 
     return (
       <aside className="right-form-aside">
@@ -111,7 +227,23 @@ export const RightForm: React.FC<RightFormProps> = ({
             <label>Phim</label>
             <select
               value={showtimeFormData.id_phim || ""}
-              onChange={(e) => onShowtimeFormChange("id_phim", parseInt(e.target.value))}
+              onChange={(e) => {
+                const nextMovieId = parseInt(e.target.value);
+                onShowtimeFormChange("id_phim", nextMovieId);
+
+                if (!autoEndTimeEnabled) return;
+                const start = showtimeFormData.gio_bat_dau;
+                const movie = movies.find((m) => m.id_phim === nextMovieId) || null;
+                if (!start || !movie) return;
+
+                const startDate = new Date(start);
+                if (Number.isNaN(startDate.getTime())) return;
+
+                const endDate = new Date(startDate.getTime() + (movie.thoi_luong || 0) * 60_000);
+                const pad2 = (n: number) => String(n).padStart(2, "0");
+                const endStr = `${endDate.getFullYear()}-${pad2(endDate.getMonth() + 1)}-${pad2(endDate.getDate())}T${pad2(endDate.getHours())}:${pad2(endDate.getMinutes())}`;
+                onShowtimeFormChange("gio_ket_thuc", endStr);
+              }}
               required
             >
               <option value="">Chọn phim</option>
@@ -160,37 +292,138 @@ export const RightForm: React.FC<RightFormProps> = ({
             </select>
           </div>
 
+          <div className="form-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={autoEndTimeEnabled}
+                onChange={(e) => setAutoEndTimeEnabled(e.target.checked)}
+                style={{ marginRight: "8px" }}
+              />
+              Tự tính giờ kết thúc theo thời lượng phim
+            </label>
+          </div>
+
           <div className="form-grid">
             <div className="form-group">
               <label>Giờ bắt đầu</label>
               <input
                 type="datetime-local"
                 value={showtimeFormData.gio_bat_dau}
-                onChange={(e) => onShowtimeFormChange("gio_bat_dau", e.target.value)}
+                onChange={(e) => {
+                  const nextStart = e.target.value;
+                  onShowtimeFormChange("gio_bat_dau", nextStart);
+
+                  if (!autoEndTimeEnabled) return;
+                  const movie = movies.find((m) => m.id_phim === showtimeFormData.id_phim) || null;
+                  if (!movie) return;
+
+                  const startDate = new Date(nextStart);
+                  if (Number.isNaN(startDate.getTime())) return;
+
+                  const endDate = new Date(startDate.getTime() + (movie.thoi_luong || 0) * 60_000);
+                  const pad2 = (n: number) => String(n).padStart(2, "0");
+                  const endStr = `${endDate.getFullYear()}-${pad2(endDate.getMonth() + 1)}-${pad2(endDate.getDate())}T${pad2(endDate.getHours())}:${pad2(endDate.getMinutes())}`;
+                  onShowtimeFormChange("gio_ket_thuc", endStr);
+
+                  const timePart = nextStart.length >= 16 ? nextStart.slice(11, 16) : "";
+                  if (timePart && bulkStartTime === "19:00") setBulkStartTime(timePart);
+                  const datePart = nextStart.length >= 10 ? nextStart.slice(0, 10) : "";
+                  if (datePart && !bulkFromDate) setBulkFromDate(datePart);
+                  if (datePart && !bulkToDate) setBulkToDate(datePart);
+                }}
                 required
               />
             </div>
             <div className="form-group">
               <label>Giờ kết thúc</label>
-              <input
-                type="datetime-local"
-                value={showtimeFormData.gio_ket_thuc}
-                onChange={(e) => onShowtimeFormChange("gio_ket_thuc", e.target.value)}
-                required
-              />
+              <input type="datetime-local" value={showtimeFormData.gio_ket_thuc} readOnly />
             </div>
           </div>
 
           <div className="form-group">
-            <label>ID bảng giá</label>
-            <input
-              type="number"
-              min="1"
+            <label>
+              <input
+                type="checkbox"
+                checked={bulkEnabled}
+                onChange={(e) => setBulkEnabled(e.target.checked)}
+                style={{ marginRight: "8px" }}
+              />
+              Tạo suất chiếu hàng loạt
+            </label>
+          </div>
+
+          {bulkEnabled ? (
+            <>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Từ ngày</label>
+                  <input type="date" value={bulkFromDate} onChange={(e) => setBulkFromDate(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>Đến ngày</label>
+                  <input type="date" value={bulkToDate} onChange={(e) => setBulkToDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Khung giờ bắt đầu (HH:mm)</label>
+                <input type="time" value={bulkStartTime} onChange={(e) => setBulkStartTime(e.target.value)} />
+              </div>
+              <button
+                type="button"
+                className="submit-button"
+                onClick={() => {
+                  if (!showtimeFormData.id_phim || !showtimeFormData.id_pc) {
+                    alert("Vui lòng chọn phim và phòng chiếu trước");
+                    return;
+                  }
+                  if (!bulkFromDate || !bulkToDate || !bulkStartTime) {
+                    alert("Vui lòng nhập đủ khoảng ngày và khung giờ");
+                    return;
+                  }
+                  onShowtimeBulkCreate({ tu_ngay: bulkFromDate, den_ngay: bulkToDate, gio_bat_dau: bulkStartTime });
+                }}
+              >
+                Tạo hàng loạt
+              </button>
+            </>
+          ) : null}
+
+          <div className="form-group">
+            <label>Giá cơ bản</label>
+            <select
               value={showtimeFormData.id_gia || ""}
               onChange={(e) => onShowtimeFormChange("id_gia", parseInt(e.target.value))}
               required
-            />
+            >
+              <option value="">Chọn giá cơ bản</option>
+              {effectivePrices.map((p) => (
+                <option key={p.id_gia} value={p.id_gia}>
+                  {p.gia_tien.toLocaleString("vi-VN")} đ - {p.ten_bang_gia} ({p.loai_ngay || "THUONG"})
+                </option>
+              ))}
+            </select>
+            {computedLoaiNgay ? (
+              <div className="table-count" style={{ marginTop: "6px" }}>
+                Loại ngày theo giờ bắt đầu: {computedLoaiNgay}
+              </div>
+            ) : null}
           </div>
+
+          {showtimeFormData.id_pc && showtimeFormData.id_gia ? (
+            <div className="form-group">
+              <label>Giá vé theo loại ghế</label>
+              <div className="checkbox-list">
+                {seatTypes.map((st) => (
+                  <div key={st.id_loaighe} className="checkbox-item" style={{ cursor: "default" }}>
+                    <span>
+                      {st.ten_loaighe}: {(baseAmount + roomSurcharge + st.phu_phi).toLocaleString("vi-VN")} đ
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="form-actions">
             <button type="submit" className="submit-button">

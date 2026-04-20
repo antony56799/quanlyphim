@@ -1,9 +1,9 @@
 import React from "react";
 
 interface TopTabsProps {
-  activeSubTab: "movies" | "genres" | "rooms" | "seats" | "showtimes";
+  activeSubTab: "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices";
   activeRoomTab: "cinemas" | "rooms" | "roomTypes";
-  onSubTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes") => void;
+  onSubTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices") => void;
   onRoomTabChange: (tab: "cinemas" | "rooms" | "roomTypes") => void;
   onResetGenreForm: () => void;
   onResetCinemaForm: () => void;
@@ -23,7 +23,7 @@ const TopTabs: React.FC<TopTabsProps> = ({
   onResetRoomForm,
   onResetRoomTypeForm,
 }) => {
-  if (activeSubTab === "seats" || activeSubTab === "showtimes") {
+  if (activeSubTab === "seats" || activeSubTab === "showtimes" || activeSubTab === "prices") {
     return <div className="top-tabs-container" />;
   }
 

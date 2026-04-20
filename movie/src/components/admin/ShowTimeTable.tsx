@@ -1,10 +1,12 @@
 import React from "react";
-import type { Cinema, Room, Showtime } from "../../types/admin";
+import type { Cinema, Room, Showtime, RoomType, SeatType } from "../../types/admin";
 
 interface ShowTimeTableProps {
   showtimes: Showtime[];
   cinemas: Cinema[];
   rooms: Room[];
+  roomTypes: RoomType[];
+  seatTypes: SeatType[];
   selectedCinemaId: number | "all";
   selectedRoomId: number | "all";
   onCinemaChange: (id: number | "all") => void;
@@ -17,6 +19,8 @@ const ShowTimeTable: React.FC<ShowTimeTableProps> = ({
   showtimes,
   cinemas,
   rooms,
+  roomTypes,
+  seatTypes,
   selectedCinemaId,
   selectedRoomId,
   onCinemaChange,
@@ -91,9 +95,33 @@ const ShowTimeTable: React.FC<ShowTimeTableProps> = ({
               <td>{new Date(st.gio_bat_dau).toLocaleString("vi-VN")}</td>
               <td>{new Date(st.gio_ket_thuc).toLocaleString("vi-VN")}</td>
               <td>
-                {st.ten_bang_gia
-                  ? `${st.ten_bang_gia} (${st.gia_tien.toLocaleString("vi-VN")} đ)`
-                  : st.id_gia}
+                {(() => {
+                  const room = rooms.find((r) => r.id_pc === st.id_pc) || null;
+                  const roomType = room ? roomTypes.find((t) => t.id_loai === room.id_loai) || null : null;
+                  const roomSurcharge = roomType?.gia ?? 0;
+
+                  const start = new Date(st.gio_bat_dau);
+                  const computedLoaiNgay = !Number.isNaN(start.getTime())
+                    ? (start.getDay() === 0 || start.getDay() === 6 ? "LE" : "THUONG")
+                    : null;
+                  const baseWithRoom = st.gia_tien + roomSurcharge;
+
+                  return (
+                    <div>
+                      <div>
+                        {baseWithRoom.toLocaleString("vi-VN")} đ{computedLoaiNgay ? ` (${computedLoaiNgay})` : ""}
+                      </div>
+                      <div style={{ color: "#aaa", fontSize: "0.75rem", marginTop: "6px" }}>
+                        {st.ten_bang_gia ? <div>{st.ten_bang_gia}</div> : null}
+                        {seatTypes.map((seat) => (
+                          <div key={seat.id_loaighe}>
+                            {seat.ten_loaighe}: {(baseWithRoom + seat.phu_phi).toLocaleString("vi-VN")} đ
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </td>
               <td className="text-right">
                 <button

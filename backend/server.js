@@ -645,6 +645,106 @@ app.delete("/api/admin/loaiphong/:id", async (req, res) => {
   }
 });
 
+app.get("/api/admin/bang-gia", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id_gia,
+        ten_bang_gia,
+        COALESCE(gia_tien, 0)::float8 AS gia_tien,
+        loai_ngay,
+        hieu_luc_tu,
+        hieu_luc_den
+      FROM bang_gia_co_ban
+      ORDER BY id_gia
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET /api/admin/bang-gia error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/bang-gia", async (req, res) => {
+  const { ten_bang_gia, gia_tien, loai_ngay, hieu_luc_tu, hieu_luc_den } = req.body;
+  try {
+    if (!ten_bang_gia || gia_tien === undefined || Number(gia_tien) < 0) {
+      return res.status(400).json({ error: "Thiếu thông tin hợp lệ: ten_bang_gia, gia_tien" });
+    }
+    if (hieu_luc_tu && hieu_luc_den) {
+      const fromDate = new Date(hieu_luc_tu);
+      const toDate = new Date(hieu_luc_den);
+      if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+        return res.status(400).json({ error: "Ngày hiệu lực không hợp lệ" });
+      }
+      if (toDate < fromDate) {
+        return res.status(400).json({ error: "hieu_luc_den phải lớn hơn hoặc bằng hieu_luc_tu" });
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO bang_gia_co_ban (ten_bang_gia, gia_tien, loai_ngay, hieu_luc_tu, hieu_luc_den)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id_gia, ten_bang_gia, COALESCE(gia_tien, 0)::float8 AS gia_tien, loai_ngay, hieu_luc_tu, hieu_luc_den`,
+      [ten_bang_gia, Number(gia_tien), loai_ngay || "THUONG", hieu_luc_tu || null, hieu_luc_den || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/bang-gia error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/bang-gia/:id", async (req, res) => {
+  const { id } = req.params;
+  const { ten_bang_gia, gia_tien, loai_ngay, hieu_luc_tu, hieu_luc_den } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE bang_gia_co_ban
+       SET ten_bang_gia = COALESCE($1, ten_bang_gia),
+           gia_tien = COALESCE($2, gia_tien),
+           loai_ngay = COALESCE($3, loai_ngay),
+           hieu_luc_tu = COALESCE($4, hieu_luc_tu),
+           hieu_luc_den = COALESCE($5, hieu_luc_den)
+       WHERE id_gia = $6
+       RETURNING id_gia, ten_bang_gia, COALESCE(gia_tien, 0)::float8 AS gia_tien, loai_ngay, hieu_luc_tu, hieu_luc_den`,
+      [
+        ten_bang_gia,
+        gia_tien !== undefined ? Number(gia_tien) : null,
+        loai_ngay,
+        hieu_luc_tu || null,
+        hieu_luc_den || null,
+        id,
+      ]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Bảng giá không tồn tại" });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("PUT /api/admin/bang-gia/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/bang-gia/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkResult = await pool.query(`SELECT COUNT(*)::int AS count FROM suat_chieu WHERE id_gia = $1`, [id]);
+    if (checkResult.rows[0].count > 0) {
+      return res.status(400).json({ error: "Không thể xóa bảng giá vì còn suất chiếu liên kết" });
+    }
+    const result = await pool.query(`DELETE FROM bang_gia_co_ban WHERE id_gia = $1 RETURNING id_gia`, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Bảng giá không tồn tại" });
+    }
+    res.json({ message: "Xóa bảng giá thành công" });
+  } catch (error) {
+    console.error("DELETE /api/admin/bang-gia/:id error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/admin/loaighe", async (_req, res) => {
   try {
     const result = await pool.query(`
@@ -1052,6 +1152,7 @@ app.get("/api/admin/suat-chieu", async (req, res) => {
         sc.gio_ket_thuc,
         sc.id_gia,
         bg.ten_bang_gia,
+        bg.loai_ngay,
         COALESCE(bg.gia_tien, 0)::float8 AS gia_tien
       FROM suat_chieu sc
       JOIN phim p ON sc.id_phim = p.id_phim
@@ -1144,6 +1245,110 @@ app.post("/api/admin/suat-chieu", async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("POST /api/admin/suat-chieu error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/suat-chieu/bulk", async (req, res) => {
+  const { id_phim, id_pc, tu_ngay, den_ngay, gio_bat_dau, id_gia } = req.body;
+  try {
+    if (!id_phim || !id_pc || !tu_ngay || !den_ngay || !gio_bat_dau) {
+      return res.status(400).json({ error: "Thiếu thông tin: id_phim, id_pc, tu_ngay, den_ngay, gio_bat_dau là bắt buộc" });
+    }
+
+    const from = new Date(tu_ngay);
+    const to = new Date(den_ngay);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ error: "Khoảng ngày không hợp lệ" });
+    }
+    const fromDate = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const toDate = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+    if (toDate < fromDate) {
+      return res.status(400).json({ error: "den_ngay phải lớn hơn hoặc bằng tu_ngay" });
+    }
+
+    const movieRes = await pool.query(`SELECT thoi_luong FROM phim WHERE id_phim = $1`, [id_phim]);
+    if (movieRes.rows.length === 0) {
+      return res.status(400).json({ error: "Phim không tồn tại" });
+    }
+    const duration = Number(movieRes.rows[0].thoi_luong || 0);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return res.status(400).json({ error: "Thời lượng phim không hợp lệ" });
+    }
+
+    const q = `
+      WITH dates AS (
+        SELECT generate_series($3::date, $4::date, interval '1 day')::date AS ngay
+      ),
+      starts AS (
+        SELECT (d.ngay::timestamp + $5::time) AS start_ts, d.ngay
+        FROM dates d
+      ),
+      priced AS (
+        SELECT
+          s.start_ts,
+          (s.start_ts + make_interval(mins => $6::int)) AS end_ts,
+          COALESCE($7::int,
+            (
+              SELECT bg.id_gia
+              FROM bang_gia_co_ban bg
+              WHERE bg.loai_ngay = (CASE WHEN EXTRACT(DOW FROM s.ngay) IN (0,6) THEN 'LE' ELSE 'THUONG' END)
+                AND (bg.hieu_luc_tu IS NULL OR bg.hieu_luc_tu <= s.ngay)
+                AND (bg.hieu_luc_den IS NULL OR bg.hieu_luc_den >= s.ngay)
+              ORDER BY bg.hieu_luc_tu DESC NULLS LAST, bg.id_gia DESC
+              LIMIT 1
+            )
+          ) AS picked_id_gia
+        FROM starts s
+      ),
+      no_price AS (
+        SELECT count(*)::int AS count
+        FROM priced
+        WHERE picked_id_gia IS NULL
+      ),
+      candidates AS (
+        SELECT *
+        FROM priced p
+        WHERE p.picked_id_gia IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM suat_chieu sc
+            WHERE sc.id_pc = $2
+              AND NOT (sc.gio_ket_thuc <= p.start_ts OR sc.gio_bat_dau >= p.end_ts)
+          )
+      ),
+      ins AS (
+        INSERT INTO suat_chieu (id_phim, id_pc, gio_bat_dau, gio_ket_thuc, id_gia)
+        SELECT $1, $2, start_ts, end_ts, picked_id_gia
+        FROM candidates
+        RETURNING id_sc
+      ),
+      requested AS (
+        SELECT count(*)::int AS count FROM dates
+      ),
+      inserted AS (
+        SELECT count(*)::int AS count FROM ins
+      )
+      SELECT
+        (SELECT count FROM requested) AS requested,
+        (SELECT count FROM inserted) AS inserted,
+        (SELECT count FROM no_price) AS skipped_no_price,
+        GREATEST((SELECT count FROM requested) - (SELECT count FROM inserted) - (SELECT count FROM no_price), 0)::int AS skipped_overlap
+    `;
+
+    const result = await pool.query(q, [
+      Number(id_phim),
+      Number(id_pc),
+      fromDate.toISOString().slice(0, 10),
+      toDate.toISOString().slice(0, 10),
+      String(gio_bat_dau),
+      duration,
+      id_gia ? Number(id_gia) : null,
+    ]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("POST /api/admin/suat-chieu/bulk error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });

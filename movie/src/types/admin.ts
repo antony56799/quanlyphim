@@ -68,7 +68,11 @@ export interface BasePrice {
   id_gia: number;
   ten_bang_gia: string;
   gia_tien: number;
+  loai_ngay?: string;
+  hieu_luc_tu?: string | null;
+  hieu_luc_den?: string | null;
 }
+
 export interface Showtime {
   id_sc: number;
   id_phim: number;
@@ -81,5 +85,6 @@ export interface Showtime {
   gio_ket_thuc: string;
   id_gia: number;
   ten_bang_gia: string;
+  loai_ngay?: string;
   gia_tien: number;
 }
