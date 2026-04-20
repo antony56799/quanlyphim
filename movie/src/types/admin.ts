@@ -6,6 +6,15 @@ export interface Staff {
   id_cv: number;
 }
 
+export interface Account {
+  id_tk: number;
+  email: string;
+  name?: string;
+  role?: string;
+  trang_thai?: string;
+  id_nv?: number | null;
+}
+
 export interface Genre {
   id_the_loai: number;
   ten_the_loai: string;

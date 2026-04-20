@@ -3,7 +3,7 @@ import { FaChartBar, FaDoorOpen, FaChair, FaCalendarAlt, FaFilm, FaUsers, FaUser
 
 interface SidebarProps {
   activeSubTab: string;
-  onTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices") => void;
+  onTabChange: (tab: "movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts") => void;
   onResetForms: () => void;
 }
 
@@ -15,25 +15,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSubTab, onTabChange, onResetFor
     { icon: <FaCalendarAlt />, label: "Quản lý suất chiếu", tab: "showtimes" as const },
     { icon: <FaMoneyBillWave />, label: "Quản lý giá vé", tab: "prices" as const },
     { icon: <FaFilm />, label: "Phim & Thể loại", tab: "movies" as const },
-    { icon: <FaUsers />, label: "Quản lý nhân sự" },
-    { icon: <FaUserCircle />, label: "Quản lý tài khoản" },
+    { icon: <FaUsers />, label: "Quản lý nhân sự", tab: "staff" as const },
+    { icon: <FaUserCircle />, label: "Quản lý tài khoản", tab: "accounts" as const },
   ];
 
   return (
     <aside className="admin-sidebar">
       {menuItems.map((item, index) => {
-        const isActive = item.tab
-          ? item.tab === "rooms"
-            ? activeSubTab === "rooms"
-            : item.tab === "seats"
-              ? activeSubTab === "seats"
-              : item.tab === "showtimes"
-                ? activeSubTab === "showtimes"
-                : item.tab === "prices"
-                  ? activeSubTab === "prices"
-                  : activeSubTab === "movies" || activeSubTab === "genres"
-          : false;
-        
+        const isActive = (() => {
+          if (!item.tab) return false;
+          if (item.tab === "movies") return activeSubTab === "movies" || activeSubTab === "genres";
+          return item.tab === activeSubTab;
+        })();
+
         return (
           <div
             key={index}

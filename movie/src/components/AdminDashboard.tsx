@@ -12,6 +12,8 @@ import RoomTable from "./admin/RoomTable";
 import RoomTypeTable from "./admin/RoomTypeTable";
 import { RightForm } from "./admin/RightForm";
 import SeatManager from "./admin/SeatManager";
+import StaffManager from "./admin/StaffManager";
+import AccountManager from "./admin/AccountManager";
 import ShowTimeTable from "./admin/ShowTimeTable";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
@@ -21,7 +23,7 @@ const AdminDashboard = () => {
 
   // --- States ---
   const [movies, setMovies] = useState<AdminMovie[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices">("movies");
+  const [activeSubTab, setActiveSubTab] = useState<"movies" | "genres" | "rooms" | "seats" | "showtimes" | "prices" | "staff" | "accounts">("movies");
   const [activeRoomTab, setActiveRoomTab] = useState<"cinemas" | "rooms" | "roomTypes">("cinemas");
   const [genreOptions, setGenreOptions] = useState<Genre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -711,6 +713,10 @@ const AdminDashboard = () => {
 
         {activeSubTab === "seats" ? (
           <SeatManager apiBaseUrl={API_BASE_URL} cinemas={cinemas} />
+        ) : activeSubTab === "staff" ? (
+          <StaffManager apiBaseUrl={API_BASE_URL} />
+        ) : activeSubTab === "accounts" ? (
+          <AccountManager apiBaseUrl={API_BASE_URL} />
         ) : (
           <>
             <section className="admin-content">

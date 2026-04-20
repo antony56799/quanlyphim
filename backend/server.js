@@ -170,6 +170,315 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// Admin endpoints for staff management
+app.get("/api/admin/nhan-vien", async (_req, res) => {
+  try {
+    let result;
+    try {
+      result = await pool.query(
+        `
+        SELECT
+          nv.id_nv,
+          nv.ten_nv,
+          nv.email_nv,
+          nv.id_cv,
+          nv.trang_thai,
+          cv.ten_cv
+        FROM nhanvien nv
+        JOIN chucvu cv ON nv.id_cv = cv.id_cv
+        ORDER BY nv.id_nv
+        `
+      );
+    } catch {
+      result = await pool.query(
+        `
+        SELECT
+          nv.id_nv,
+          nv.ten_nv,
+          nv.email_nv,
+          nv.id_cv,
+          'Đang làm' AS trang_thai,
+          cv.ten_cv
+        FROM nhanvien nv
+        JOIN chucvu cv ON nv.id_cv = cv.id_cv
+        ORDER BY nv.id_nv
+        `
+      );
+    }
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/nhan-vien", async (req, res) => {
+  const { ten_nv, email_nv, id_cv, password_nv, trang_thai } = req.body;
+
+  if (!ten_nv || !email_nv || !id_cv || !password_nv) {
+    return res.status(400).json({ error: "Thiếu dữ liệu: ten_nv, email_nv, id_cv, password_nv" });
+  }
+
+  try {
+    let result;
+    try {
+      result = await pool.query(
+        `
+        INSERT INTO nhanvien (ten_nv, email_nv, id_cv, password_nv, trang_thai)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id_nv, ten_nv, email_nv, id_cv, trang_thai
+        `,
+        [String(ten_nv).trim(), String(email_nv).trim(), Number(id_cv), String(password_nv), trang_thai ?? "Đang làm"]
+      );
+    } catch {
+      result = await pool.query(
+        `
+        INSERT INTO nhanvien (ten_nv, email_nv, id_cv, password_nv)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id_nv, ten_nv, email_nv, id_cv
+        `,
+        [String(ten_nv).trim(), String(email_nv).trim(), Number(id_cv), String(password_nv)]
+      );
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/nhan-vien/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { ten_nv, email_nv, id_cv, password_nv, trang_thai } = req.body;
+
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: "ID không hợp lệ" });
+  }
+
+  try {
+    const updates = [];
+    const values = [];
+
+    if (ten_nv !== undefined) {
+      values.push(String(ten_nv).trim());
+      updates.push(`ten_nv = ${values.length}`);
+    }
+
+    if (email_nv !== undefined) {
+      values.push(String(email_nv).trim());
+      updates.push(`email_nv = ${values.length}`);
+    }
+
+    if (id_cv !== undefined) {
+      values.push(Number(id_cv));
+      updates.push(`id_cv = ${values.length}`);
+    }
+
+    if (password_nv) {
+      values.push(String(password_nv));
+      updates.push(`password_nv = ${values.length}`);
+    }
+
+    if (trang_thai !== undefined) {
+      values.push(String(trang_thai));
+      updates.push(`trang_thai = ${values.length}`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "Không có dữ liệu để cập nhật" });
+    }
+
+    values.push(id);
+
+    let result;
+    try {
+      result = await pool.query(
+        `UPDATE nhanvien SET ${updates.join(", ")} WHERE id_nv = ${values.length} RETURNING id_nv, ten_nv, email_nv, id_cv, trang_thai`,
+        values
+      );
+    } catch {
+      const fallbackUpdates = updates.filter((x) => !x.startsWith("trang_thai"));
+      const fallbackValues = [];
+      for (let i = 0; i < updates.length; i++) {
+        if (!updates[i].startsWith("trang_thai")) fallbackValues.push(values[i]);
+      }
+      fallbackValues.push(id);
+      result = await pool.query(
+        `UPDATE nhanvien SET ${fallbackUpdates.join(", ")} WHERE id_nv = ${fallbackValues.length} RETURNING id_nv, ten_nv, email_nv, id_cv`,
+        fallbackValues
+      );
+    }
+
+    res.json(result.rows[0] || null);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/nhan-vien/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    await pool.query("DELETE FROM nhanvien WHERE id_nv = $1", [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin endpoints for account management (khách hàng)
+app.get("/api/admin/tai-khoan", async (_req, res) => {
+  try {
+    let result;
+    try {
+      result = await pool.query(
+        `
+        SELECT
+          id_kh AS id_tk,
+          email,
+          ten_kh AS name,
+          'customer' AS role,
+          trang_thai,
+          NULL::integer AS id_nv
+        FROM khachhang
+        ORDER BY id_kh
+        `
+      );
+    } catch {
+      result = await pool.query(
+        `
+        SELECT
+          id_kh AS id_tk,
+          email,
+          ten_kh AS name,
+          'customer' AS role,
+          'active' AS trang_thai,
+          NULL::integer AS id_nv
+        FROM khachhang
+        ORDER BY id_kh
+        `
+      );
+    }
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/tai-khoan", async (req, res) => {
+  const { email, name, password, password_user, trang_thai } = req.body;
+  const nextPassword = password_user ?? password;
+
+  if (!email || !nextPassword) {
+    return res.status(400).json({ error: "Thiếu dữ liệu: email, password" });
+  }
+
+  try {
+    let result;
+    try {
+      result = await pool.query(
+        `
+        INSERT INTO khachhang (email, ten_kh, password_user, trang_thai)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id_kh AS id_tk, email, ten_kh AS name, 'customer' AS role, trang_thai, NULL::integer AS id_nv
+        `,
+        [String(email).trim(), String(name || "").trim(), String(nextPassword), trang_thai ?? "active"]
+      );
+    } catch {
+      result = await pool.query(
+        `
+        INSERT INTO khachhang (email, ten_kh, password_user)
+        VALUES ($1, $2, $3)
+        RETURNING id_kh AS id_tk, email, ten_kh AS name, 'customer' AS role, 'active' AS trang_thai, NULL::integer AS id_nv
+        `,
+        [String(email).trim(), String(name || "").trim(), String(nextPassword)]
+      );
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/tai-khoan/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { email, name, password, password_user, trang_thai } = req.body;
+  const nextPassword = password_user ?? password;
+
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: "ID không hợp lệ" });
+  }
+
+  try {
+    const updates = [];
+    const values = [];
+
+    if (email !== undefined) {
+      values.push(String(email).trim());
+      updates.push(`email = ${values.length}`);
+    }
+
+    if (name !== undefined) {
+      values.push(String(name).trim());
+      updates.push(`ten_kh = ${values.length}`);
+    }
+
+    if (nextPassword) {
+      values.push(String(nextPassword));
+      updates.push(`password_user = ${values.length}`);
+    }
+
+    if (trang_thai !== undefined) {
+      values.push(String(trang_thai));
+      updates.push(`trang_thai = ${values.length}`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "Không có dữ liệu để cập nhật" });
+    }
+
+    values.push(id);
+
+    let result;
+    try {
+      result = await pool.query(
+        `UPDATE khachhang SET ${updates.join(", ")} WHERE id_kh = ${values.length} RETURNING id_kh AS id_tk, email, ten_kh AS name, 'customer' AS role, trang_thai, NULL::integer AS id_nv`,
+        values
+      );
+    } catch {
+      const fallbackUpdates = updates.filter((x) => !x.startsWith("trang_thai"));
+      const fallbackValues = [];
+      for (let i = 0; i < updates.length; i++) {
+        if (!updates[i].startsWith("trang_thai")) fallbackValues.push(values[i]);
+      }
+      fallbackValues.push(id);
+      result = await pool.query(
+        `UPDATE khachhang SET ${fallbackUpdates.join(", ")} WHERE id_kh = ${fallbackValues.length} RETURNING id_kh AS id_tk, email, ten_kh AS name, 'customer' AS role, 'active' AS trang_thai, NULL::integer AS id_nv`,
+        fallbackValues
+      );
+    }
+
+    res.json(result.rows[0] || null);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/tai-khoan/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    await pool.query("DELETE FROM khachhang WHERE id_kh = $1", [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin endpoints for movie management
 app.get("/api/admin/movies", async (req, res) => {
   try {
