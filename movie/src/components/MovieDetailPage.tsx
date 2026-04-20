@@ -32,6 +32,21 @@ const toTrailerEmbedSrc = (trailerUrl: string | null | undefined) => {
   return null;
 };
 
+const SESSION_ID_STORAGE_KEY = "movie_session_id";
+
+const getOrCreateSessionId = () => {
+  const existing = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+  if (existing) return existing;
+
+  const next =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `sess_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+  localStorage.setItem(SESSION_ID_STORAGE_KEY, next);
+  return next;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is UnknownRecord => typeof value === "object" && value !== null;
@@ -192,9 +207,16 @@ const MovieDetailPage = () => {
   const [seatsLoading, setSeatsLoading] = useState(false);
   const [seatsError, setSeatsError] = useState<string | null>(null);
 
+  const sessionId = useMemo(() => getOrCreateSessionId(), []);
+
   const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
-  const [bookingStatus, setBookingStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [bookingStatus, setBookingStatus] = useState<"idle" | "holding" | "held" | "paying" | "paid" | "error">("idle");
   const [bookingMessage, setBookingMessage] = useState<string | null>(null);
+  const [bookingId, setBookingId] = useState<number | null>(null);
+  const [holdExpiresAt, setHoldExpiresAt] = useState<string | null>(null);
+  const [confirmedTotal, setConfirmedTotal] = useState<number | null>(null);
+  const [seatReloadToken, setSeatReloadToken] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!Number.isFinite(movieId)) {
@@ -272,6 +294,9 @@ const MovieDetailPage = () => {
         setSelectedSeatIds([]);
         setBookingStatus("idle");
         setBookingMessage(null);
+        setBookingId(null);
+        setHoldExpiresAt(null);
+        setConfirmedTotal(null);
 
         const res = await fetch(`${API_BASE_URL}/api/showtimes/${selectedShowtimeId}/seats`, {
           signal: controller.signal,
@@ -289,7 +314,7 @@ const MovieDetailPage = () => {
     })();
 
     return () => controller.abort();
-  }, [selectedShowtimeId]);
+  }, [selectedShowtimeId, seatReloadToken]);
 
   const selectedShowtime = useMemo(
     () => (selectedShowtimeId ? showtimes.find((s) => s.id === selectedShowtimeId) ?? null : null),
@@ -326,33 +351,124 @@ const MovieDetailPage = () => {
     }
 
     try {
-      setBookingStatus("submitting");
+      setBookingStatus("holding");
       setBookingMessage(null);
+      setBookingId(null);
+      setHoldExpiresAt(null);
+      setConfirmedTotal(null);
+
+      let customerId: number | null = null;
+      try {
+        const raw = localStorage.getItem("user");
+        const parsed: unknown = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === "object") {
+          const rec = parsed as Record<string, unknown>;
+          if (rec.role === "customer" && typeof rec.id === "number") customerId = rec.id;
+        }
+      } catch {
+        customerId = null;
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/bookings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
         body: JSON.stringify({
           movieId: movie.id,
           showtimeId: selectedShowtimeId,
           seatIds: selectedSeatIds,
+          customerId,
         }),
       });
 
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
         setBookingStatus("error");
-        setBookingMessage(data?.error || "Đặt vé không thành công.");
+        setBookingMessage(data?.error || "Giữ chỗ không thành công.");
         return;
       }
 
-      setBookingStatus("success");
-      setBookingMessage("Đặt vé thành công.");
+      const idHd = typeof data?.bookingId === "number" ? data.bookingId : null;
+      setBookingId(idHd);
+      setHoldExpiresAt(typeof data?.holdExpiresAt === "string" ? data.holdExpiresAt : null);
+      setConfirmedTotal(typeof data?.total === "number" ? data.total : null);
+
+      setBookingStatus("held");
+      setBookingMessage("Giữ chỗ thành công. Vui lòng thanh toán trước khi hết hạn.");
     } catch {
       setBookingStatus("error");
-      setBookingMessage("Không thể kết nối để đặt vé. Vui lòng thử lại.");
+      setBookingMessage("Không thể kết nối để giữ chỗ. Vui lòng thử lại.");
     }
   };
+
+  const handlePayBooking = async () => {
+    if (!bookingId) return;
+
+    try {
+      setBookingStatus("paying");
+      setBookingMessage(null);
+
+      let customerId: number | null = null;
+      try {
+        const raw = localStorage.getItem("user");
+        const parsed: unknown = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === "object") {
+          const rec = parsed as Record<string, unknown>;
+          if (rec.role === "customer" && typeof rec.id === "number") customerId = rec.id;
+        }
+      } catch {
+        customerId = null;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+        body: JSON.stringify({ bookingId, customerId }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setBookingStatus("error");
+        setBookingMessage(data?.error || "Thanh toán không thành công.");
+        return;
+      }
+
+      setBookingStatus("paid");
+      setBookingMessage("Thanh toán thành công.");
+      setSeatReloadToken((x) => x + 1);
+    } catch {
+      setBookingStatus("error");
+      setBookingMessage("Không thể kết nối để thanh toán. Vui lòng thử lại.");
+    }
+  };
+
+  useEffect(() => {
+    if (bookingStatus !== "held") return;
+
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [bookingStatus]);
+
+  const holdRemainingSeconds = useMemo(() => {
+    if (!holdExpiresAt) return null;
+    const expiresMs = new Date(holdExpiresAt).getTime();
+    if (!Number.isFinite(expiresMs)) return null;
+    return Math.max(0, Math.floor((expiresMs - nowMs) / 1000));
+  }, [holdExpiresAt, nowMs]);
+
+  useEffect(() => {
+    if (bookingStatus !== "held") return;
+    if (holdRemainingSeconds == null) return;
+    if (holdRemainingSeconds > 0) return;
+
+    setBookingStatus("error");
+    setBookingMessage("Hết thời gian giữ chỗ. Vui lòng chọn ghế và giữ chỗ lại.");
+    setBookingId(null);
+    setHoldExpiresAt(null);
+    setConfirmedTotal(null);
+    setSeatReloadToken((x) => x + 1);
+  }, [bookingStatus, holdRemainingSeconds]);
 
   const trailerEmbedSrc = toTrailerEmbedSrc(movie?.trailerUrl);
 
@@ -365,7 +481,7 @@ const MovieDetailPage = () => {
             <p className="movies-section__eyebrow">Chi tiết phim</p>
             <h2 className="movie-detail__title">{movie?.title || "..."}</h2>
           </div>
-          <button className="tab-button" type="button" onClick={() => navigate(-1)}>
+          <button className="tab-button tab-button--light" type="button" onClick={() => navigate(-1)}>
             Quay lại
           </button>
         </div>
@@ -494,7 +610,7 @@ const MovieDetailPage = () => {
                                     <button
                                       key={seat.id}
                                       type="button"
-                                      disabled={!seat.isAvailable || bookingStatus === "submitting"}
+                                      disabled={!seat.isAvailable || bookingStatus === "holding" || bookingStatus === "paying" || bookingStatus === "paid"}
                                       className={`seat ${isSelected ? "is-selected" : ""}`}
                                       onClick={() => handleToggleSeat(seat)}
                                       aria-label={`${seat.label}${seat.seatTypeName ? ` (${seat.seatTypeName})` : ""}`}
@@ -509,17 +625,44 @@ const MovieDetailPage = () => {
 
                           <div className="booking-actions">
                             <div className="booking-total">
-                              Tổng: {totalPrice.toLocaleString("vi-VN")} đ
+                              Tổng: {(confirmedTotal ?? totalPrice).toLocaleString("vi-VN")} đ
                             </div>
-                            <button
-                              type="button"
-                              className="booking-submit"
-                              onClick={handleSubmitBooking}
-                              disabled={bookingStatus === "submitting"}
-                            >
-                              {bookingStatus === "submitting" ? "Đang đặt..." : "Đặt vé"}
-                            </button>
+
+                            {bookingStatus !== "held" && bookingStatus !== "paid" && (
+                              <button
+                                type="button"
+                                className="booking-submit"
+                                onClick={handleSubmitBooking}
+                                disabled={bookingStatus === "holding" || bookingStatus === "paying"}
+                              >
+                                {bookingStatus === "holding" ? "Đang giữ chỗ..." : "Giữ chỗ"}
+                              </button>
+                            )}
+
+                            {bookingStatus === "held" && (
+                              <button type="button" className="booking-submit" onClick={handlePayBooking}>
+                                Thanh toán
+                              </button>
+                            )}
+
+                            {bookingStatus === "paying" && (
+                              <button type="button" className="booking-submit" disabled>
+                                Đang thanh toán...
+                              </button>
+                            )}
+
+                            {bookingStatus === "paid" && (
+                              <button type="button" className="booking-submit" disabled>
+                                Đã thanh toán
+                              </button>
+                            )}
                           </div>
+
+                          {bookingStatus === "held" && holdRemainingSeconds != null && (
+                            <div className="movies-feedback" role="status">
+                              Giữ chỗ còn: {Math.floor(holdRemainingSeconds / 60)}:{String(holdRemainingSeconds % 60).padStart(2, "0")}
+                            </div>
+                          )}
 
                           {bookingMessage && (
                             <div

@@ -39,6 +39,28 @@ function parseBooleanWithDefault(value, defaultValue) {
   return parsed === undefined ? defaultValue : parsed;
 }
 
+const HOLD_MINUTES = Number(process.env.HOLD_MINUTES || 10);
+
+function getSessionId(req) {
+  const raw = req.get("x-session-id") || "";
+  const sid = String(raw).trim();
+  return sid.length > 0 ? sid.slice(0, 100) : null;
+}
+
+async function cleanupExpiredHolds(db, showtimeId) {
+  await db.query(
+    `
+    UPDATE ghe_suat_chieu
+    SET trang_thai = 1, session_id = NULL, thoi_gian_giu = NULL
+    WHERE id_sc = $1
+      AND trang_thai = 2
+      AND thoi_gian_giu IS NOT NULL
+      AND thoi_gian_giu < NOW() - ($2::int * interval '1 minute')
+    `,
+    [showtimeId, HOLD_MINUTES]
+  );
+}
+
 app.get("/", (_req, res) => {
   res.json({
     message: "Backend is running",
@@ -245,6 +267,9 @@ app.get("/api/showtimes/:id/seats", async (req, res) => {
     if (stRes.rows.length === 0) return res.status(404).json({ error: "Suất chiếu không tồn tại" });
 
     const id_pc = stRes.rows[0].id_pc;
+
+    await cleanupExpiredHolds(pool, id);
+
     const seatsRes = await pool.query(
       `
       SELECT
@@ -292,6 +317,14 @@ app.post("/api/bookings", async (req, res) => {
   const movieId = Number(req.body?.movieId);
   const showtimeId = Number(req.body?.showtimeId);
   const seatIdsRaw = req.body?.seatIds;
+  const sessionId = getSessionId(req);
+  const customerIdRaw = req.body?.customerId ?? req.body?.customer_id ?? req.body?.id_kh;
+  const customerId = Number(customerIdRaw);
+  const customerIdOrNull = Number.isFinite(customerId) ? customerId : null;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "Thiếu x-session-id để giữ chỗ" });
+  }
 
   if (!Number.isFinite(movieId) || !Number.isFinite(showtimeId) || !Array.isArray(seatIdsRaw)) {
     return res.status(400).json({ error: "Dữ liệu không hợp lệ: movieId, showtimeId, seatIds[]" });
@@ -339,6 +372,8 @@ app.post("/api/bookings", async (req, res) => {
       return res.status(400).json({ error: "movieId không khớp với suất chiếu" });
     }
 
+    await cleanupExpiredHolds(client, showtimeId);
+
     const seatsRes = await client.query(
       `
       SELECT
@@ -368,7 +403,7 @@ app.post("/api/bookings", async (req, res) => {
 
     const lockRes = await client.query(
       `
-      SELECT id_ghe, trang_thai
+      SELECT id_ghe, trang_thai, session_id
       FROM ghe_suat_chieu
       WHERE id_sc = $1
         AND id_ghe = ANY($2::int[])
@@ -377,10 +412,16 @@ app.post("/api/bookings", async (req, res) => {
       [showtimeId, seatIds]
     );
 
-    const statusBySeat = new Map(lockRes.rows.map((r) => [Number(r.id_ghe), Number(r.trang_thai)]));
+    const bySeat = new Map(
+      lockRes.rows.map((r) => [Number(r.id_ghe), { status: Number(r.trang_thai), sessionId: r.session_id ? String(r.session_id) : null }])
+    );
+
     const conflict = seatIds.find((sid) => {
-      const stt = statusBySeat.get(sid);
-      return stt !== undefined && stt !== 1;
+      const it = bySeat.get(sid);
+      if (!it) return false;
+      if (it.status === 0) return true;
+      if (it.status === 2 && it.sessionId !== sessionId) return true;
+      return false;
     });
 
     if (conflict !== undefined) {
@@ -421,10 +462,10 @@ app.post("/api/bookings", async (req, res) => {
     const hdRes = await client.query(
       `
       INSERT INTO hoa_don (ma_giao_dich, id_kh, id_nv, tong_tien_hd, trang_thai)
-      VALUES ($1, NULL, NULL, $2, 0)
+      VALUES ($1, $2::int, NULL, $3, 0)
       RETURNING id_hd, ma_giao_dich, ngay_tao, tong_tien_hd, trang_thai
       `,
-      [maGiaoDich, total]
+      [maGiaoDich, customerIdOrNull, total]
     );
 
     const id_hd = hdRes.rows[0].id_hd;
@@ -434,8 +475,8 @@ app.post("/api/bookings", async (req, res) => {
       const params = [showtimeId];
       let idx = 2;
       for (const sid of seatIds) {
-        values.push(`($1, $${idx++}::int, 0, NULL, NULL)`);
-        params.push(sid);
+        values.push(`($1, $${idx++}::int, 2, $${idx++}::text, NOW())`);
+        params.push(sid, sessionId);
       }
 
       await client.query(
@@ -443,7 +484,7 @@ app.post("/api/bookings", async (req, res) => {
         INSERT INTO ghe_suat_chieu (id_sc, id_ghe, trang_thai, session_id, thoi_gian_giu)
         VALUES ${values.join(", ")}
         ON CONFLICT (id_sc, id_ghe)
-        DO UPDATE SET trang_thai = EXCLUDED.trang_thai, session_id = NULL, thoi_gian_giu = NULL
+        DO UPDATE SET trang_thai = EXCLUDED.trang_thai, session_id = EXCLUDED.session_id, thoi_gian_giu = EXCLUDED.thoi_gian_giu
         `,
         params
       );
@@ -455,7 +496,7 @@ app.post("/api/bookings", async (req, res) => {
       const params = [id_hd, showtimeId];
       let idx = 3;
       for (const it of items) {
-        values.push(`($1, $2, $${idx++}::int, $${idx++}::numeric, 1)`);
+        values.push(`($1, $2, $${idx++}::int, $${idx++}::numeric, 0)`);
         params.push(it.seatId, it.price);
       }
 
@@ -471,6 +512,11 @@ app.post("/api/bookings", async (req, res) => {
     }
 
     await client.query("COMMIT");
+
+    const createdAtRaw = hdRes.rows?.[0]?.ngay_tao;
+    const createdAtMs = createdAtRaw ? new Date(createdAtRaw).getTime() : Date.now();
+    const expiresAtMs = Number.isFinite(createdAtMs) ? createdAtMs + HOLD_MINUTES * 60 * 1000 : Date.now() + HOLD_MINUTES * 60 * 1000;
+
     return res.status(201).json({
       success: true,
       bookingId: id_hd,
@@ -480,7 +526,150 @@ app.post("/api/bookings", async (req, res) => {
       total: Number(hdRes.rows[0].tong_tien_hd || total),
       items,
       tickets: ticketRows,
+      holdExpiresAt: new Date(expiresAtMs).toISOString(),
+      sessionId,
+      status: "held",
     });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/payments", async (req, res) => {
+  const bookingId = Number(req.body?.bookingId);
+  const sessionId = getSessionId(req);
+  const customerIdRaw = req.body?.customerId ?? req.body?.customer_id ?? req.body?.id_kh;
+  const customerId = Number(customerIdRaw);
+  const customerIdOrNull = Number.isFinite(customerId) ? customerId : null;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "Thiếu x-session-id để thanh toán" });
+  }
+
+  if (!Number.isFinite(bookingId)) {
+    return res.status(400).json({ error: "bookingId không hợp lệ" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const invoiceRes = await client.query(
+      `
+      SELECT id_kh, trang_thai
+      FROM hoa_don
+      WHERE id_hd = $1
+      FOR UPDATE
+      `,
+      [bookingId]
+    );
+
+    if (invoiceRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Booking không tồn tại" });
+    }
+
+    const invoice = invoiceRes.rows[0];
+    const invoiceStatus = Number(invoice.trang_thai);
+    const invoiceCustomerId = invoice.id_kh == null ? null : Number(invoice.id_kh);
+
+    if (customerIdOrNull != null && invoiceCustomerId != null && customerIdOrNull !== invoiceCustomerId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Booking không thuộc tài khoản này" });
+    }
+
+    if (invoiceStatus !== 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Booking không ở trạng thái chờ thanh toán" });
+    }
+
+    const ticketsRes = await client.query(
+      `
+      SELECT id_sc, id_ghe
+      FROM ve
+      WHERE id_hd = $1
+      `,
+      [bookingId]
+    );
+
+    if (ticketsRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Booking không tồn tại" });
+    }
+
+    const seatIds = Array.from(new Set(ticketsRes.rows.map((r) => Number(r.id_ghe)).filter((x) => Number.isFinite(x))));
+    const showtimeIds = Array.from(new Set(ticketsRes.rows.map((r) => Number(r.id_sc)).filter((x) => Number.isFinite(x))));
+
+    if (seatIds.length === 0 || showtimeIds.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Dữ liệu vé không hợp lệ" });
+    }
+
+    for (const stId of showtimeIds) {
+      await cleanupExpiredHolds(client, stId);
+
+      const lockRes = await client.query(
+        `
+        SELECT id_ghe, trang_thai, session_id
+        FROM ghe_suat_chieu
+        WHERE id_sc = $1
+          AND id_ghe = ANY($2::int[])
+        FOR UPDATE
+        `,
+        [stId, seatIds]
+      );
+
+      const bySeat = new Map(
+        lockRes.rows.map((r) => [Number(r.id_ghe), { status: Number(r.trang_thai), sessionId: r.session_id ? String(r.session_id) : null }])
+      );
+
+      const conflict = seatIds.find((sid) => {
+        const it = bySeat.get(sid);
+        if (!it) return true;
+        if (it.status !== 2) return true;
+        if (it.sessionId !== sessionId) return true;
+        return false;
+      });
+
+      if (conflict !== undefined) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Ghế không còn được giữ cho phiên này", seatId: conflict });
+      }
+
+      await client.query(
+        `
+        UPDATE ghe_suat_chieu
+        SET trang_thai = 0, session_id = NULL, thoi_gian_giu = NULL
+        WHERE id_sc = $1
+          AND id_ghe = ANY($2::int[])
+        `,
+        [stId, seatIds]
+      );
+    }
+
+    await client.query(
+      `
+      UPDATE ve
+      SET ttv = 1
+      WHERE id_hd = $1
+      `,
+      [bookingId]
+    );
+
+    await client.query(
+      `
+      UPDATE hoa_don
+      SET trang_thai = 1
+      WHERE id_hd = $1
+      `,
+      [bookingId]
+    );
+
+    await client.query("COMMIT");
+    return res.json({ success: true, bookingId, status: "paid" });
   } catch (error) {
     await client.query("ROLLBACK");
     return res.status(500).json({ error: error.message });
@@ -2542,6 +2731,281 @@ app.get("/api/admin/doanh-thu", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/customers/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    let result;
+    try {
+      result = await pool.query(
+        `
+        SELECT id_kh, email, ten_kh, trang_thai
+        FROM khachhang
+        WHERE id_kh = $1
+        `,
+        [id]
+      );
+    } catch {
+      result = await pool.query(
+        `
+        SELECT id_kh, email, ten_kh, 'active' AS trang_thai
+        FROM khachhang
+        WHERE id_kh = $1
+        `,
+        [id]
+      );
+    }
+
+    if (result.rows.length === 0) return res.status(404).json({ error: "Không tìm thấy khách hàng" });
+
+    const row = result.rows[0];
+    return res.json({
+      id: Number(row.id_kh),
+      email: row.email,
+      name: row.ten_kh,
+      trang_thai: row.trang_thai,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/customers/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { email, name } = req.body || {};
+
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    const updates = [];
+    const values = [];
+
+    if (email !== undefined) {
+      const next = String(email).trim();
+      if (!next) return res.status(400).json({ error: "Email không hợp lệ" });
+      values.push(next);
+      updates.push(`email = ${values.length}`);
+    }
+
+    if (name !== undefined) {
+      values.push(String(name).trim());
+      updates.push(`ten_kh = ${values.length}`);
+    }
+
+    if (updates.length === 0) return res.status(400).json({ error: "Không có dữ liệu để cập nhật" });
+
+    values.push(id);
+
+    const result = await pool.query(
+      `
+      UPDATE khachhang
+      SET ${updates.join(", ")}
+      WHERE id_kh = ${values.length}
+      RETURNING id_kh, email, ten_kh
+      `,
+      values
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: "Không tìm thấy khách hàng" });
+
+    const row = result.rows[0];
+    return res.json({ id: Number(row.id_kh), email: row.email, name: row.ten_kh });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/customers/:id/password", async (req, res) => {
+  const id = Number(req.params.id);
+  const { oldPassword, newPassword } = req.body || {};
+
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+  if (typeof oldPassword !== "string" || oldPassword.length === 0) return res.status(400).json({ error: "Thiếu mật khẩu hiện tại" });
+  if (typeof newPassword !== "string" || newPassword.length < 4) return res.status(400).json({ error: "Mật khẩu mới quá ngắn" });
+
+  try {
+    const currentRes = await pool.query(
+      `
+      SELECT password_user
+      FROM khachhang
+      WHERE id_kh = $1
+      `,
+      [id]
+    );
+
+    if (currentRes.rows.length === 0) return res.status(404).json({ error: "Không tìm thấy khách hàng" });
+
+    const current = currentRes.rows[0].password_user == null ? "" : String(currentRes.rows[0].password_user);
+    if (current !== oldPassword) return res.status(400).json({ error: "Mật khẩu hiện tại không đúng" });
+
+    await pool.query(
+      `
+      UPDATE khachhang
+      SET password_user = $1
+      WHERE id_kh = $2
+      `,
+      [String(newPassword), id]
+    );
+
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/customers/:id/bookings", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        hd.id_hd,
+        hd.ma_giao_dich,
+        hd.ngay_tao,
+        hd.tong_tien_hd::float8 AS tong_tien_hd,
+        hd.trang_thai,
+        (hd.ngay_tao + ($2::int * interval '1 minute'))::timestamptz AS hold_expires_at,
+        MIN(sc.id_sc)::int AS id_sc,
+        MIN(p.id_phim)::int AS id_phim,
+        MIN(p.ten_phim)::text AS ten_phim,
+        MIN(pc.ten_phong)::text AS ten_phong,
+        MIN(r.diachi)::text AS ten_rap,
+        MIN(sc.gio_bat_dau)::timestamptz AS gio_bat_dau,
+        ARRAY_AGG((g.hang || g.so::text) ORDER BY g.hang, g.so)::text[] AS ghe,
+        COUNT(v.id_ve)::int AS tickets,
+        SUM(CASE WHEN v.ttv = 1 THEN 1 ELSE 0 END)::int AS paid_tickets
+      FROM hoa_don hd
+      JOIN ve v ON v.id_hd = hd.id_hd
+      JOIN suat_chieu sc ON sc.id_sc = v.id_sc
+      JOIN phim p ON p.id_phim = sc.id_phim
+      JOIN phong_chieu pc ON pc.id_pc = sc.id_pc
+      JOIN rap r ON r.id_rap = pc.id_rap
+      JOIN ghe g ON g.id_ghe = v.id_ghe
+      WHERE hd.id_kh = $1
+      GROUP BY hd.id_hd, hd.ma_giao_dich, hd.ngay_tao, hd.tong_tien_hd, hd.trang_thai
+      ORDER BY hd.ngay_tao DESC, hd.id_hd DESC
+      LIMIT 100
+      `,
+      [id, HOLD_MINUTES]
+    );
+
+    return res.json(
+      (result.rows || []).map((row) => ({
+        bookingId: Number(row.id_hd),
+        ma_giao_dich: row.ma_giao_dich,
+        createdAt: row.ngay_tao,
+        total: Number(row.tong_tien_hd || 0),
+        status: Number(row.trang_thai),
+        holdExpiresAt: row.hold_expires_at,
+        showtimeId: Number(row.id_sc),
+        movieId: Number(row.id_phim),
+        movieTitle: row.ten_phim,
+        roomName: row.ten_phong,
+        cinemaName: row.ten_rap,
+        startTime: row.gio_bat_dau,
+        seats: Array.isArray(row.ghe) ? row.ghe : [],
+        tickets: Number(row.tickets || 0),
+        paidTickets: Number(row.paid_tickets || 0),
+      }))
+    );
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/bookings/:id/cancel", async (req, res) => {
+  const bookingId = Number(req.params.id);
+  const customerIdRaw = req.body?.customerId ?? req.body?.customer_id ?? req.body?.id_kh;
+  const customerId = Number(customerIdRaw);
+  const customerIdOrNull = Number.isFinite(customerId) ? customerId : null;
+
+  if (!Number.isFinite(bookingId)) return res.status(400).json({ error: "bookingId không hợp lệ" });
+  if (customerIdOrNull == null) return res.status(400).json({ error: "Thiếu customerId" });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const invoiceRes = await client.query(
+      `
+      SELECT id_kh, trang_thai
+      FROM hoa_don
+      WHERE id_hd = $1
+      FOR UPDATE
+      `,
+      [bookingId]
+    );
+
+    if (invoiceRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Booking không tồn tại" });
+    }
+
+    const invoice = invoiceRes.rows[0];
+    const invoiceStatus = Number(invoice.trang_thai);
+    const invoiceCustomerId = invoice.id_kh == null ? null : Number(invoice.id_kh);
+
+    if (invoiceCustomerId != null && invoiceCustomerId !== customerIdOrNull) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Booking không thuộc tài khoản này" });
+    }
+
+    if (invoiceStatus !== 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Chỉ có thể hủy khi đang chờ thanh toán" });
+    }
+
+    const ticketsRes = await client.query(
+      `
+      SELECT id_sc, id_ghe
+      FROM ve
+      WHERE id_hd = $1
+      `,
+      [bookingId]
+    );
+
+    if (ticketsRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Booking không tồn tại" });
+    }
+
+    await client.query(
+      `
+      UPDATE ghe_suat_chieu gsc
+      SET trang_thai = 1, session_id = NULL, thoi_gian_giu = NULL
+      FROM (
+        SELECT DISTINCT id_sc, id_ghe
+        FROM ve
+        WHERE id_hd = $1
+      ) t
+      WHERE gsc.id_sc = t.id_sc
+        AND gsc.id_ghe = t.id_ghe
+      `,
+      [bookingId]
+    );
+
+    await client.query(
+      `
+      UPDATE hoa_don
+      SET trang_thai = 2
+      WHERE id_hd = $1
+      `,
+      [bookingId]
+    );
+
+    await client.query("COMMIT");
+    return res.json({ success: true, bookingId, status: "canceled" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

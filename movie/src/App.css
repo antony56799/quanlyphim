@@ -171,6 +171,27 @@
   font-size: 0.9rem;
 }
 
+.tab-button:hover {
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+.tab-button:focus,
+.tab-button:focus-visible {
+  outline: 3px solid rgba(204, 141, 90, 0.32);
+  outline-offset: 2px;
+}
+
+.tab-button--light {
+  color: #2f2017;
+  border-color: rgba(47, 32, 23, 0.45);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.tab-button--light:hover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(47, 32, 23, 0.85);
+}
+
 .tab-button.active {
   background: #e50914;
   border-color: transparent;

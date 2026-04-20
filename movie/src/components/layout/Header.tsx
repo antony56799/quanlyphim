@@ -4,26 +4,38 @@ import { Link, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 
 type User = {
+  id?: number;
   name: string;
+  email?: string;
   role?: string;
+};
+
+const USER_CHANGED_EVENT = "user-changed";
+
+const readStoredUser = (): User | null => {
+  const storedUser = localStorage.getItem("user");
+  if (!storedUser) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(storedUser);
+    if (!parsed || typeof parsed !== "object") return null;
+    const rec = parsed as Record<string, unknown>;
+    const name = typeof rec.name === "string" ? rec.name : "";
+    if (!name) return null;
+    const id = typeof rec.id === "number" ? rec.id : undefined;
+    const email = typeof rec.email === "string" ? rec.email : undefined;
+    const role = typeof rec.role === "string" ? rec.role : undefined;
+    return { id, name, email, role };
+  } catch {
+    return null;
+  }
 };
 
 const Header = () => {
   const navigate = useNavigate();
   const [openSearch, setOpenSearch] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const [user, setUser] = useState<User | null>(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(storedUser) as User;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<User | null>(() => readStoredUser());
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -36,8 +48,21 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const syncUser = () => setUser(readStoredUser());
+
+    window.addEventListener("storage", syncUser);
+    window.addEventListener(USER_CHANGED_EVENT, syncUser);
+
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener(USER_CHANGED_EVENT, syncUser);
+    };
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("user");
+    window.dispatchEvent(new Event(USER_CHANGED_EVENT));
     setUser(null);
     navigate("/login");
   };
@@ -120,7 +145,13 @@ const Header = () => {
 
         {user ? (
           <div style={{ display: "flex", alignItems: "center", gap: "15px", color: "white" }}>
-            <span style={{ fontSize: "0.9rem" }}>{user.name}</span>
+            {user.role === "customer" ? (
+              <Link to="/account" style={{ fontSize: "0.9rem", color: "white", textDecoration: "none" }}>
+                {user.name}
+              </Link>
+            ) : (
+              <span style={{ fontSize: "0.9rem" }}>{user.name}</span>
+            )}
             {user.role === "admin" && (
               <Link to="/admin" style={{ color: "white", textDecoration: "none", fontSize: "0.9rem", border: "1px solid white", padding: "2px 8px", borderRadius: "4px" }}>
                 Admin

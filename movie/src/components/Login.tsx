@@ -25,9 +25,9 @@ const Login = () => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Save user info (simulated session)
         localStorage.setItem("user", JSON.stringify(data.user));
-        
+        window.dispatchEvent(new Event("user-changed"));
+
         if (data.user.role === "admin" || data.user.role === "staff") {
           navigate("/admin");
         } else {
