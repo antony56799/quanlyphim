@@ -80,6 +80,11 @@ interface RightFormProps {
   onRevenueFormChange: (field: "tu_ngay" | "den_ngay" | "id_rap" | "id_phim", value: string | number | "all") => void;
   onRevenueLoad: () => void;
   onRevenueReset: () => void;
+  revenueChartType: "bar" | "line";
+  onRevenueChartTypeChange: (type: "bar" | "line") => void;
+  revenueExportEnabled: boolean;
+  onRevenueExportCsv: () => void;
+  onRevenueExportPng: () => void;
 }
 
 export const RightForm: React.FC<RightFormProps> = ({
@@ -134,6 +139,11 @@ export const RightForm: React.FC<RightFormProps> = ({
   onRevenueFormChange,
   onRevenueLoad,
   onRevenueReset,
+  revenueChartType,
+  onRevenueChartTypeChange,
+  revenueExportEnabled,
+  onRevenueExportCsv,
+  onRevenueExportPng,
 }) => {
   const [autoEndTimeEnabled, setAutoEndTimeEnabled] = useState(true);
   const [bulkEnabled, setBulkEnabled] = useState(false);
@@ -209,12 +219,29 @@ export const RightForm: React.FC<RightFormProps> = ({
             </select>
           </div>
 
+          <div className="form-group">
+            <label>Kiểu biểu đồ</label>
+            <select value={revenueChartType} onChange={(e) => onRevenueChartTypeChange(e.target.value === "line" ? "line" : "bar")}>
+              <option value="bar">Cột</option>
+              <option value="line">Đường</option>
+            </select>
+          </div>
+
           <div className="form-actions">
             <button type="submit" className="submit-button">
               Xem báo cáo
             </button>
             <button type="button" onClick={onRevenueReset} className="cancel-button">
               Xóa báo cáo
+            </button>
+          </div>
+
+          <div className="form-actions">
+            <button type="button" className="submit-button" disabled={!revenueExportEnabled} onClick={onRevenueExportCsv}>
+              Xuất CSV
+            </button>
+            <button type="button" className="cancel-button" disabled={!revenueExportEnabled} onClick={onRevenueExportPng}>
+              Xuất PNG
             </button>
           </div>
         </form>

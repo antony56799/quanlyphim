@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Background from "./layout/Background";
 import Header from "./layout/Header";
 import type { AdminMovie, Genre, Cinema, Room, RoomType, Showtime, BasePrice, SeatType } from "../types/admin";
@@ -131,6 +131,10 @@ const AdminDashboard = () => {
   const [revenueReport, setRevenueReport] = useState<RevenueReport | null>(null);
   const [revenueLoading, setRevenueLoading] = useState(false);
   const [revenueError, setRevenueError] = useState<string | null>(null);
+  const [revenueChartType, setRevenueChartType] = useState<"bar" | "line">("bar");
+  const revenueChartContainerRef = useRef<HTMLDivElement | null>(null);
+  const revenueChartCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [revenueChartWidth, setRevenueChartWidth] = useState(0);
 
   // --- API Calls ---
   const loadMovies = useCallback(async () => {
@@ -285,6 +289,213 @@ const AdminDashboard = () => {
       setRevenueLoading(false);
     }
   }, [revenueFormData.den_ngay, revenueFormData.id_phim, revenueFormData.id_rap, revenueFormData.tu_ngay]);
+
+  useEffect(() => {
+    const el = revenueChartContainerRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.floor(entries[0]?.contentRect?.width || 0);
+      setRevenueChartWidth(w);
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeSubTab]);
+
+  useEffect(() => {
+    if (activeSubTab !== "revenue") return;
+    const canvas = revenueChartCanvasRef.current;
+    if (!canvas) return;
+    const data = revenueReport?.byDate || [];
+
+    const cssWidth = revenueChartWidth || 0;
+    const cssHeight = 260;
+    if (cssWidth <= 0) return;
+
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    canvas.width = Math.floor(cssWidth * dpr);
+    canvas.height = Math.floor(cssHeight * dpr);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    const padding = { left: 56, right: 18, top: 18, bottom: 44 };
+    const plotW = Math.max(1, cssWidth - padding.left - padding.right);
+    const plotH = Math.max(1, cssHeight - padding.top - padding.bottom);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top + plotH);
+    ctx.lineTo(padding.left + plotW, padding.top + plotH);
+    ctx.stroke();
+
+    if (data.length === 0) {
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText("Không có dữ liệu để vẽ biểu đồ", padding.left, padding.top + 24);
+      return;
+    }
+
+    const values = data.map((d) => Number(d.revenue || 0));
+    const maxV = Math.max(...values, 0);
+    const safeMax = maxV <= 0 ? 1 : maxV;
+
+    const formatMoneyShort = (v: number) => {
+      const abs = Math.abs(v);
+      if (abs >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+      if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+      if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+      return String(Math.round(v));
+    };
+
+    const ticks = 4;
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = "#6b7280";
+    ctx.strokeStyle = "#f3f4f6";
+    for (let i = 0; i <= ticks; i += 1) {
+      const t = i / ticks;
+      const y = padding.top + (1 - t) * plotH;
+      const val = safeMax * t;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(padding.left + plotW, y);
+      ctx.stroke();
+      ctx.fillText(formatMoneyShort(val), 8, y + 4);
+    }
+
+    const n = data.length;
+    const stepX = n <= 1 ? plotW : plotW / (n - 1);
+    const xOf = (i: number) => padding.left + i * stepX;
+    const yOf = (v: number) => padding.top + (1 - Math.max(0, v) / safeMax) * plotH;
+
+    const getDayLabel = (s: string) => String(s || "").slice(0, 10);
+    const xLabelEvery = Math.max(1, Math.ceil(n / 8));
+    ctx.fillStyle = "#6b7280";
+    ctx.textAlign = "center";
+    for (let i = 0; i < n; i += xLabelEvery) {
+      const x = xOf(i);
+      const y = padding.top + plotH + 22;
+      ctx.fillText(getDayLabel(data[i]?.day || ""), x, y);
+    }
+    ctx.textAlign = "start";
+
+    const color = "#2563eb";
+
+    if (revenueChartType === "line") {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < n; i += 1) {
+        const x = xOf(i);
+        const y = yOf(values[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      for (let i = 0; i < n; i += 1) {
+        const x = xOf(i);
+        const y = yOf(values[i]);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      const barGap = 6;
+      const barW = n <= 1 ? plotW : Math.max(6, stepX - barGap);
+      ctx.fillStyle = color;
+      for (let i = 0; i < n; i += 1) {
+        const x = xOf(i) - barW / 2;
+        const y = yOf(values[i]);
+        const h = padding.top + plotH - y;
+        ctx.fillRect(x, y, barW, h);
+      }
+    }
+  }, [activeSubTab, revenueChartType, revenueChartWidth, revenueReport]);
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const escapeCsv = (v: unknown) => {
+    const raw = v === null || v === undefined ? "" : String(v);
+    const needs = /[",\n\r]/.test(raw);
+    const escaped = raw.replace(/"/g, '""');
+    return needs ? `"${escaped}"` : escaped;
+  };
+
+  const buildRevenueCsv = (report: RevenueReport) => {
+    const lines: string[] = [];
+    const rapLabel = revenueFormData.id_rap === "all" ? "Tất cả" : String(revenueFormData.id_rap);
+    const phimLabel = revenueFormData.id_phim === "all" ? "Tất cả" : String(revenueFormData.id_phim);
+
+    lines.push(["Từ ngày", revenueFormData.tu_ngay, "Đến ngày", revenueFormData.den_ngay].map(escapeCsv).join(","));
+    lines.push(["Rạp", rapLabel, "Phim", phimLabel].map(escapeCsv).join(","));
+    lines.push(["Tổng doanh thu", report.summary.total_revenue, "Tổng vé", report.summary.total_tickets, "Tổng hóa đơn", report.summary.total_bookings].map(escapeCsv).join(","));
+    lines.push("");
+
+    lines.push("Theo ngày");
+    lines.push(["Ngày", "Doanh thu", "Vé", "Hóa đơn"].map(escapeCsv).join(","));
+    for (const r of report.byDate) {
+      lines.push([r.day, r.revenue, r.tickets, r.bookings].map(escapeCsv).join(","));
+    }
+    lines.push("");
+
+    lines.push("Top phim");
+    lines.push(["ID phim", "Tên phim", "Doanh thu", "Vé", "Hóa đơn"].map(escapeCsv).join(","));
+    for (const r of report.byMovie) {
+      lines.push([r.id_phim, r.ten_phim, r.revenue, r.tickets, r.bookings].map(escapeCsv).join(","));
+    }
+    lines.push("");
+
+    lines.push("Top rạp");
+    lines.push(["ID rạp", "Tên rạp", "Doanh thu", "Vé", "Hóa đơn"].map(escapeCsv).join(","));
+    for (const r of report.byCinema) {
+      lines.push([r.id_rap, r.ten_rap, r.revenue, r.tickets, r.bookings].map(escapeCsv).join(","));
+    }
+    lines.push("");
+
+    lines.push("Hóa đơn");
+    lines.push(["ID", "Mã GD", "Ngày", "Phim", "Rạp", "Vé", "Tổng tiền", "Trạng thái"].map(escapeCsv).join(","));
+    for (const r of report.invoices) {
+      lines.push([r.id_hd, r.ma_giao_dich, r.ngay_tao, r.ten_phim, r.ten_rap, r.tickets, r.tong_tien_hd, r.trang_thai].map(escapeCsv).join(","));
+    }
+
+    return `\uFEFF${lines.join("\n")}`;
+  };
+
+  const handleExportRevenueCsv = () => {
+    if (!revenueReport) return;
+    const csv = buildRevenueCsv(revenueReport);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    downloadBlob(blob, `doanh-thu_${revenueFormData.tu_ngay}_${revenueFormData.den_ngay}.csv`);
+  };
+
+  const handleExportRevenueChartPng = async () => {
+    const canvas = revenueChartCanvasRef.current;
+    if (!canvas) return;
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
+    if (!blob) return;
+    downloadBlob(blob, `bieu-do_doanh-thu_${revenueFormData.tu_ngay}_${revenueFormData.den_ngay}.png`);
+  };
 
   useEffect(() => {
     loadMovies();
@@ -839,6 +1050,23 @@ const AdminDashboard = () => {
                         <div className="loading-text">Chọn bộ lọc ở khung bên phải để xem báo cáo</div>
                       ) : (
                         <>
+                          <h3 style={{ margin: "12px 0" }}>Biểu đồ doanh thu</h3>
+                          <div
+                            ref={revenueChartContainerRef}
+                            style={{
+                              width: "100%",
+                              maxWidth: 980,
+                              background: "#ffffff",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: 10,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <canvas ref={revenueChartCanvasRef} style={{ display: "block", width: "100%", height: 260 }} />
+                          </div>
+
+                          <div style={{ height: 16 }} />
+
                           <h3 style={{ margin: "12px 0" }}>Theo ngày</h3>
                           <table className="admin-table">
                             <thead>
@@ -1203,6 +1431,11 @@ const AdminDashboard = () => {
                 setRevenueReport(null);
                 setRevenueError(null);
               }}
+              revenueChartType={revenueChartType}
+              onRevenueChartTypeChange={setRevenueChartType}
+              revenueExportEnabled={Boolean(revenueReport) && !revenueLoading}
+              onRevenueExportCsv={handleExportRevenueCsv}
+              onRevenueExportPng={handleExportRevenueChartPng}
             />
           </>
         )}

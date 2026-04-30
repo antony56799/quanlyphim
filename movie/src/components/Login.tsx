@@ -1,8 +1,7 @@
 import Background from "../components/layout/Background";
 import Header from "../components/layout/Header";
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
-
+import { useState} from "react";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const Login = () => {
@@ -46,9 +45,9 @@ const Login = () => {
     <Background>
       <Header />
       <main className="login-page">
-        <section className="login-window" aria-labelledby="login-title">
+        <section className="login-window">
           <form className="login-form" onSubmit={handleLogin}>
-            <h2 id="login-title" style={{ marginBottom: "1rem", fontSize: "1.5rem", fontWeight: "bold" }}>Đăng nhập</h2>
+            <h2 style={{ marginBottom: "0.5rem", fontSize: "1.5rem", fontWeight: "bold", textAlign:"center" }}>Đăng nhập</h2>
             
             {error && <p style={{ color: "#ff4d4d", marginBottom: "1rem", fontSize: "0.9rem" }}>{error}</p>}
 
